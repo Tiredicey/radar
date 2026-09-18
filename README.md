@@ -7,7 +7,7 @@ Philippine scholarship, education-funding and innovation lead research. This is 
 - Hono / Cloudflare Pages dashboard with light/dark themes, mobile layouts, search, category/location/application-wording filters, sorting, lead details, source links, copy-link action and CSV export.
 - Collector mode: `publish_dashboard.py` fetches four RSS searches in GitHub Actions and uploads authenticated snapshots to D1. Dashboard visits read those snapshots without direct Cloudflare-to-Google fetching.
 - Direct mode, when no valid-length sync secret is configured: visits can check eligible feeds, using a three-hour successful-check cache and a 60-second failed-check retry interval. Prior records survive feed failures.
-- Mode-aware Refresh guidance, stale-source labels, singular lead wording and distinct unavailable-data versus zero-match states. Failed reloads retain the last response with an explicit warning. Fresh-source counts exclude snapshots over six hours old.
+- Mode-aware Refresh guidance, stale-source labels, singular lead wording and distinct unavailable-data versus zero-match states. Failed reloads retain the last response with a warning. Fresh-source counts exclude snapshots over six hours old.
 - Original Python CLI and notification monitor retained. Explicit source amounts replace invented estimates; bounded digests preserve complete links and logs withhold credentials. Uncertain notification attempts are not retried within that alert-history database.
 
 ## Entry points
@@ -44,13 +44,26 @@ npx playwright install --with-deps chromium
 npm test
 ```
 
-The dashboard suite needs Chromium and its system dependencies. It uses isolated fixtures and intercepted browser requests, not production feeds or notifications. Parser-only checks: `node --test tests/core.test.js`. Python checks: `python3 -m unittest -v test_promo_engine`.
+The dashboard suite needs Chromium and its system dependencies. It uses isolated fixtures and intercepted browser requests, not production feeds or notifications.
+
+Individual suites:
+
+```sh
+node --test tests/core.test.js
+node --test tests/dashboard.test.js
+node --test tests/importer.test.js
+python3 -m unittest -v test_promo_engine
+```
+
+The collector suite bundles the actual Hono application using esbuild and runs it inside Miniflare with a separate local D1 database per case. It applies the repository migration, uses a fixture-only token, blocks application outbound fetches and cleans up generated `artifacts/importer-*` directories. Test-only migration/storage inspection routes exist only in the test bundle, not the production source or Vite build. No test reads production secrets or writes production D1.
+
+The explicit esbuild and Miniflare dev dependencies pin the versions already present in the lockfile. They are test tooling, not new production integrations.
 
 ## Storage and integration
 
 D1 `cache` stores source ID, normalized JSON payload, checked timestamp, success flag and error. `lease` controls concurrent direct checks. Leads retain publisher, publication and collection dates, source URL, explicit amount evidence and classification signals. API results deduplicate IDs and restrict publication age to 30 days.
 
-The importer checks authorization, source allowlist, the 1.5 MB body limit, XML and collection timestamps. Timestamp-guarded writes prevent older or duplicate snapshots from replacing newer ones. Full importer authorization/persistence regression testing remains pending.
+The importer checks authorization, source allowlist, the 1.5 MB body limit, XML and collection timestamps. Timestamp-guarded writes prevent older or duplicate snapshots from replacing newer ones.
 
 | Configuration | Location | Purpose |
 | --- | --- | --- |
@@ -65,16 +78,17 @@ Prefer the `CALLMEBOT_KEY` environment variable over command-line secrets. `--au
 
 ## Verification and release
 
-- Repository: https://github.com/Tiredicey/radar, branch `main`. Recovery baseline: `e940764`.
-- Production: https://radar-1y6.pages.dev/static/#discover . Hosting remains the user's Cloudflare Pages and D1 configuration. Workflow and backend files are unchanged by this UI update.
-- Current local checks: 18 JavaScript cases passed (6 parser, 12 Chromium dashboard), plus 11 Python methods. Vite build passed. Browser checks cover collection modes, freshness counts, missing/failed/empty data, refresh recovery, singular wording, keyboard search/details and absence of the removed attribution.
-- No document overflow was observed at 320, 390, 768 and 1280 CSS pixels across Discover, Sources and Guide in light/dark themes using test fixtures. This is not a claim of universal accessibility or complete visual-regression coverage.
+- Repository: https://github.com/Tiredicey/radar, branch `main`. Dashboard checkpoint: `da48360`. Collector-test checkpoint: `645072d`.
+- Production: https://radar-1y6.pages.dev/static/#discover . Hosting remains the user's Cloudflare Pages and D1 configuration. Production application code, workflow and hosting configuration are unchanged by the collector-test update.
+- Current local verification: 32 JavaScript cases passed (6 parser, 12 Chromium dashboard, 14 collector integration), plus 11 Python methods. Vite build passed.
+- Collector checks cover normalized source evidence for all four allowed IDs; missing/wrong/malformed authorization; absent/short configured tokens; unknown IDs; invalid timestamps/XML/entity declarations; declared, streamed and multibyte oversized bodies; exact-size acceptance; duplicate/older/newer and concurrent uploads; persistence across a local runtime restart; fresh/stale collector reads without outbound fetching; and source-isolated empty snapshots. Rejected uploads are checked against the previous stored records. These are local runtime results, not a production security audit.
+- Browser checks cover collection modes, freshness counts, unavailable/empty data, refresh recovery, singular wording, keyboard search/details and absence of the removed attribution. No document overflow was observed at 320, 390, 768 and 1280 CSS pixels across Discover, Sources and Guide in light/dark themes using fixtures. This is not a claim of universal accessibility or complete visual-regression coverage.
 - User-provided historical evidence: dashboard output showed 30 leads and 4/4 source checks; run #10 reported gateway acceptance, a later screenshot showed a received message, run #11 saved a silent baseline and run #13 restored cache without sending a new message. This session does not reverify that history or guarantee future delivery.
-- Release uses a normal GitHub push through the existing workflow. Push/build success alone does not prove production serves new assets. No notification tests or direct deployment are included in this change.
+- Release uses a normal GitHub push through the existing workflow. Push/build success alone does not prove production serves new assets. No notification sends or direct deployment are included in this test update.
 
 ## Remaining work
 
-1. Importer authorization, validation and persistence regression suite using isolated D1 data.
-2. Broader browser coverage: CSV contents, copy-link behavior, screen-reader, contrast and visual-regression checks.
+1. Broader browser coverage: CSV contents, copy-link behavior, screen-reader, contrast and visual-regression checks.
+2. Publisher-side failure/retry tests and injected D1 storage-error coverage. Local importer tests do not establish end-to-end delivery from scheduled GitHub runners.
 3. Requested legal-research and GIF-discovery modules after source/API verification; neither is implemented here.
 4. Private saved leads/application notes remain unimplemented. The dashboard has no accounts, application submission or payment features.
