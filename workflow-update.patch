@@ -1,0 +1,60 @@
+diff --git a/.github/workflows/inflow_radar.yml b/.github/workflows/inflow_radar.yml
+index 3f9391c..81d44a1 100644
+--- a/.github/workflows/inflow_radar.yml
++++ b/.github/workflows/inflow_radar.yml
+@@ -2,12 +2,20 @@ name: Autonomous Student Capital Inflow Radar
+ 
+ on:
+   schedule:
+-    - cron: '0 */3 * * *'
++    - cron: '17 */3 * * *'
+   workflow_dispatch:
+ 
++permissions:
++  contents: read
++
++concurrency:
++  group: funding-radar-monitor
++  cancel-in-progress: false
++
+ jobs:
+   poll-and-alert:
+     runs-on: ubuntu-latest
++    timeout-minutes: 10
+     steps:
+       - name: Checkout Code
+         uses: actions/checkout@v4
+@@ -17,9 +25,31 @@ jobs:
+         with:
+           python-version: '3.12'
+ 
++      - name: Restore alert history
++        uses: actions/cache/restore@v4
++        with:
++          path: vouchers.db
++          key: radar-history-v2-${{ github.run_id }}-${{ github.run_attempt }}
++          restore-keys: radar-history-v2-
++
+       - name: Run Capital Radar and Dispatch to Messenger
+         env:
+           CALLMEBOT_KEY: ${{ secrets.CALLMEBOT_KEY }}
+         run: |
+-          python promo_engine.py --init-db
+-          python promo_engine.py --auto --callmebot-key "$CALLMEBOT_KEY"
++          set -euo pipefail
++          if [ -z "$CALLMEBOT_KEY" ]; then
++            echo '::error::CALLMEBOT_KEY is missing.'
++            exit 1
++          fi
++          if [ ! -f vouchers.db ]; then
++            export RADAR_BASELINE=1
++            echo '::warning::No alert history restored. Establishing a silent baseline.'
++          fi
++          python promo_engine.py --auto
++
++      - name: Save alert history
++        if: always()
++        uses: actions/cache/save@v4
++        with:
++          path: vouchers.db
++          key: radar-history-v2-${{ github.run_id }}-${{ github.run_attempt }}
