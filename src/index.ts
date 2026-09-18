@@ -6,7 +6,8 @@ import feeds from '../feeds.json'
 const app=new Hono<{Bindings:{DB:D1Database}}>()
 app.use('*',secureHeaders({contentSecurityPolicy:{defaultSrc:["'self'"],scriptSrc:["'self'"],styleSrc:["'self'"],objectSrc:["'none'"],frameAncestors:["'none'"]},referrerPolicy:'no-referrer'}))
 app.use('/static/*',serveStatic({root:'./public'}))
-app.get('/',c=>c.redirect('/static/index.html'))
+app.get('/',c=>c.redirect('/static/'))
+app.get('/favicon.ico',c=>c.redirect('/static/favicon.svg'))
 app.get('/api/health',async c=>{await c.env.DB.prepare('SELECT id FROM cache LIMIT 1').first();return c.json({ok:true,storage:'D1'})})
 app.get('/api/leads',async c=>{
  const db=c.env.DB,now=Date.now(),lock=await db.prepare('UPDATE lease SET until=? WHERE id=1 AND until<?').bind(now+90000,now).run()
@@ -28,5 +29,6 @@ app.get('/api/leads',async c=>{
  const items=[...new Map(results.flatMap(r=>JSON.parse(r.payload)).filter(i=>Date.parse(i.published)>now-30*86400000&&relevant(i.title+" "+i.summary)).map(i=>[i.id,i])).values()]
  return c.json({items,sources:feeds.map(f=>({...f,health:(()=>{const r=results.find(r=>r.id===f.id);return r?{checked:r.checked,ok:r.ok,error:r.error,count:JSON.parse(r.payload).length}:null})()})),checking:!lock.meta.changes})
 })
+app.notFound(c=>c.json({error:'Not found'},404))
 app.onError((error,c)=>{console.error(error.name);return c.json({error:'Service unavailable. Stored data is retained.'},503)})
 export default app
