@@ -107,6 +107,14 @@ def get_db_connection(db_path: str = DATABASE_FILE) -> sqlite3.Connection:
     return conn
 
 
+def lead_category(text: str) -> str:
+    if not re.search(r"\b(scholarships?|scholars|students?|educational assistance|tuition|stipend|hackathon|hack4gov|bounty|startup)\b|research.{0,30}(?:grant|fund)|grant.{0,30}research", text, re.I):
+        return "out_of_scope"
+    if not re.search(r"\b(closed|awarded|graduates|deadline passed)\b", text, re.I) and re.search(r"\bapply\b|accepting applications|applications? (?:are |is )?(?:open|until|deadline)|call for (?:applications|proposals)", text, re.I):
+        return "application_lead"
+    return "funding_news"
+
+
 def init_db(db_path: str = DATABASE_FILE) -> None:
     logging.info("Initializing capital database: %s", db_path)
     with get_db_connection(db_path) as conn:
@@ -130,6 +138,9 @@ def init_db(db_path: str = DATABASE_FILE) -> None:
         columns = [row[1] for row in cursor.fetchall()]
         if "payout_php" not in columns:
             conn.execute("ALTER TABLE vouchers ADD COLUMN payout_php INTEGER DEFAULT 0")
+        for row in conn.execute("SELECT id,title,summary FROM vouchers").fetchall():
+            text = row["title"] + " " + (row["summary"] or "")
+            conn.execute("UPDATE vouchers SET category=?,payout_php=? WHERE id=?", (lead_category(text), extract_monetary_reward(text), row["id"]))
         conn.commit()
     logging.info("Capital schema ready.")
 
@@ -223,7 +234,7 @@ def ingest_feeds(db_path: str = DATABASE_FILE) -> int:
                 full_text = f"{entry['title']} {entry['summary']}"
                 
                 # Enforce commercial blacklist
-                if is_blacklisted(entry["link"], full_text):
+                if is_blacklisted(entry["link"], full_text) or lead_category(full_text) == "out_of_scope":
                     logging.debug("Filtered out commercial/consumer item: %s", entry["title"])
                     continue
 
@@ -239,13 +250,14 @@ def ingest_feeds(db_path: str = DATABASE_FILE) -> int:
                     INSERT INTO vouchers (
                         id, title, link, affiliate_link, summary, 
                         category, payout_php, is_local, is_grant, discovered_at, alerted
-                    ) VALUES (?, ?, ?, ?, ?, 'grants', ?, ?, 1, ?, 0)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, 0)
                 """, (
                     entry_id,
                     entry["title"],
                     entry["link"],
                     entry["link"],
                     entry["summary"],
+                    lead_category(full_text),
                     payout,
                     1 if is_local else 0,
                     now_iso
@@ -260,9 +272,10 @@ def ingest_feeds(db_path: str = DATABASE_FILE) -> int:
 def list_records(db_path: str = DATABASE_FILE, limit: int = 15) -> None:
     with get_db_connection(db_path) as conn:
         cursor = conn.execute("""
-            SELECT id, title, payout_php, is_local, discovered_at
+            SELECT id, title, payout_php, is_local, discovered_at, category
             FROM vouchers
-            ORDER BY payout_php DESC, discovered_at DESC
+            WHERE category != 'out_of_scope'
+            ORDER BY (category='application_lead') DESC, is_local DESC, discovered_at DESC
             LIMIT ?
         """, (limit,))
         rows = cursor.fetchall()
@@ -318,7 +331,7 @@ def dispatch_alerts(callmebot_key: str, db_path: str = DATABASE_FILE) -> int:
         raise ValueError("CALLMEBOT_KEY missing")
     with get_db_connection(db_path) as conn:
         conn.execute("BEGIN IMMEDIATE")
-        items = conn.execute("SELECT id,title,link FROM vouchers WHERE alerted=0 ORDER BY is_local DESC,discovered_at DESC LIMIT 5").fetchall()
+        items = conn.execute("SELECT id,title,link FROM vouchers WHERE alerted=0 AND category='application_lead' ORDER BY is_local DESC,discovered_at DESC LIMIT 20").fetchall()
         text = "Radar research leads. Awards, eligibility and deadlines unverified."
         selected = []
         for item in items:
@@ -329,6 +342,7 @@ def dispatch_alerts(callmebot_key: str, db_path: str = DATABASE_FILE) -> int:
         items = selected
         conn.executemany("UPDATE vouchers SET alerted=2 WHERE id=?", [(r["id"],) for r in items])
     if not items:
+        logging.info("No unalerted application leads fit the message budget. No message sent.")
         return 0
     if not send_messenger_callmebot(callmebot_key, text):
         logging.error("Notification not confirmed. See CallMeBot result above. Feed collection succeeded; no automatic retry in this database.")

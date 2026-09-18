@@ -36,5 +36,16 @@ class GatewayTests(unittest.TestCase):
         self.assertEqual(engine.classify_callmebot_response('<script>error: failed</script><p>Message sent</p>'), 'accepted')
 
 
+class RelevanceTests(unittest.TestCase):
+    def test_unrelated_programs_excluded(self):
+        for title in ['P330M Batangas facility to boost egg production', 'Egg producers get P66M for Batangas egg plant', 'DOST allots P300M for expansion of its AI data center']:
+            self.assertEqual(engine.lead_category(title), 'out_of_scope')
+    def test_budget_news_is_not_application(self):
+        self.assertEqual(engine.lead_category('P8.67-B funding sought for DOST scholarships'), 'funding_news')
+    def test_apply_signals(self):
+        self.assertEqual(engine.lead_category('DOST urges Grade 12 students to apply'), 'application_lead')
+        self.assertEqual(engine.lead_category('Scholarship applications closed'), 'funding_news')
+
+
 if __name__ == '__main__':
     unittest.main()
