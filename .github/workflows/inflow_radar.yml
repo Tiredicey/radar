@@ -1,0 +1,25 @@
+name: Autonomous Student Capital Inflow Radar
+
+on:
+  schedule:
+    - cron: '0 */3 * * *'
+  workflow_dispatch:
+
+jobs:
+  poll-and-alert:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run Capital Radar and Dispatch to Messenger
+        env:
+          CALLMEBOT_KEY: ${{ secrets.CALLMEBOT_KEY }}
+        run: |
+          python promo_engine.py --init-db
+          python promo_engine.py --auto --callmebot-key "$CALLMEBOT_KEY"
