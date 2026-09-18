@@ -51,7 +51,8 @@ The web app stores public feed snapshots and a sync lease in D1 (`cache`, `lease
 - Vite build and local D1 migration passed. Local HTTP checks returned real lead data and four successful source checks during this session; counts vary with source responses.
 - User-provided Actions run #10 logs reported HTTP 200 and gateway acceptance of a four-lead digest. This is not confirmation of Messenger delivery.
 - A browser console check exposed a missing-favicon 503. The route was fixed; a subsequent HTTP check returned 200. Full browser interaction, accessibility and visual-regression suites have not completed and are not claimed as passed.
-- Repository: https://github.com/Tiredicey/radar . Production deployment has not been performed. Choose Genspark-hosted Cloudflare or your own Cloudflare account before deploying.
+- Repository: https://github.com/Tiredicey/radar . 
+- At https://radar-1y6.pages.dev/static/#discover 
 
 ## Remaining work
 
