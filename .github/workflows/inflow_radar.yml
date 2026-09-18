@@ -32,6 +32,12 @@ jobs:
           key: radar-history-v2-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: radar-history-v2-
 
+      - name: Publish feeds to Radar dashboard
+        env:
+          RADAR_URL: https://radar-1y6.pages.dev
+          RADAR_SYNC_TOKEN: ${{ secrets.RADAR_SYNC_TOKEN }}
+        run: python publish_dashboard.py
+
       - name: Run Capital Radar and Dispatch to Messenger
         env:
           CALLMEBOT_KEY: ${{ secrets.CALLMEBOT_KEY }}
