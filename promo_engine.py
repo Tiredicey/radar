@@ -176,15 +176,19 @@ def parse_rss(feed_url: str) -> list[dict]:
     
     try:
         with urllib.request.urlopen(req, timeout=12) as resp:
-            content = resp.read()
+            content = resp.read(1500001)
+        if len(content) > 1500000 or re.search(br"<!DOCTYPE|<!ENTITY", content, re.I):
+            raise ValueError("Unsafe or oversized RSS response")
     except urllib.error.URLError as err:
-        logging.error("Failed to retrieve feed %s: %s", feed_url, err)
-        return []
+        logging.error("Feed request failed. Previous records retained.")
+        raise RuntimeError("Feed unavailable") from None
 
     entries = []
     try:
         root = ET.fromstring(content)
-        for item in root.findall(".//item"):
+        if root.tag != "rss" or root.find("channel") is None:
+            raise ValueError("RSS channel missing")
+        for item in root.findall("./channel/item")[:100]:
             title_node = item.find("title")
             link_node = item.find("link")
             desc_node = item.find("description")
@@ -201,8 +205,8 @@ def parse_rss(feed_url: str) -> list[dict]:
                 "summary": summary_clean
             })
     except ET.ParseError as err:
-        logging.error("XML parse error on %s: %s", feed_url, err)
-        return []
+        logging.error("Feed XML is invalid.")
+        raise RuntimeError("Invalid RSS") from None
 
     return entries
 
@@ -248,7 +252,7 @@ def ingest_feeds(db_path: str = DATABASE_FILE) -> int:
                 new_records += 1
 
         conn.commit()
-    logging.info("Ingestion completed. Inserted %d high-yield non-dilutive capital items.", new_records)
+    logging.info("Ingestion completed. Inserted %d research leads; awards and eligibility are unverified.", new_records)
     return new_records
 
 
@@ -277,45 +281,34 @@ def list_records(db_path: str = DATABASE_FILE, limit: int = 15) -> None:
 
 
 def send_messenger_callmebot(apikey: str, text: str) -> bool:
-    encoded_text = urllib.parse.quote(text)
-    url = f"https://api.callmebot.com/facebook/send.php?apikey={apikey}&text={encoded_text}"
+    url = "https://api.callmebot.com/facebook/send.php?" + urllib.parse.urlencode({"apikey": apikey, "text": text})
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
-            body = resp.read().decode('utf-8', errors='replace')
+            body = resp.read(4096).decode('utf-8', errors='replace')
             logging.info("CallMeBot responded; response body withheld.")
-            if "invalid" in body.lower() or "error" in body.lower():
-                return False
-            return True
+            return not re.search(r"invalid|error|failed|not sent|not queued|not accepted", body, re.I) and bool(re.search(r"success|message (?:sent|queued|accepted)", body, re.I))
     except urllib.error.URLError as err:
         logging.error("CallMeBot request failed; credential-bearing details withheld.")
         return False
 
 
 def dispatch_alerts(callmebot_key: str, db_path: str = DATABASE_FILE) -> int:
-    dispatched = 0
+    if not callmebot_key:
+        raise ValueError("CALLMEBOT_KEY missing")
     with get_db_connection(db_path) as conn:
-        cursor = conn.execute("""
-            SELECT id, title, link, payout_php, is_local
-            FROM vouchers
-            WHERE alerted = 0
-            ORDER BY payout_php DESC
-            LIMIT 5
-        """)
-        unalerted = cursor.fetchall()
-
-        for item in unalerted:
-            payout_badge = f"[PHP {item['payout_php']:,} MENTIONED, NOT VERIFIED PAYOUT]" if item['payout_php'] > 0 else "[AMOUNT UNVERIFIED]"
-            local_badge = "[LIPA / BATANGAS]" if item['is_local'] else "[NATIONAL GRANT]"
-            message_text = f"{payout_badge} {local_badge}\n{item['title']}\nSource: {item['link']}"
-
-            if send_messenger_callmebot(callmebot_key, message_text):
-                conn.execute("UPDATE vouchers SET alerted = 1 WHERE id = ?", (item["id"],))
-                dispatched += 1
-
-        conn.commit()
-    logging.info("Dispatched %d priority capital alerts.", dispatched)
-    return dispatched
+        conn.execute("BEGIN IMMEDIATE")
+        items = conn.execute("SELECT id,title,link FROM vouchers WHERE alerted=0 ORDER BY is_local DESC,discovered_at DESC LIMIT 5").fetchall()
+        conn.executemany("UPDATE vouchers SET alerted=2 WHERE id=?", [(r["id"],) for r in items])
+    if not items:
+        return 0
+    text = "Radar research leads. Awards, eligibility and deadlines unverified.\n\n" + "\n\n".join(r["title"] + "\n" + r["link"] for r in items)
+    if not send_messenger_callmebot(callmebot_key, text[:3500]):
+        raise RuntimeError("Notification outcome uncertain; no automatic retry")
+    with get_db_connection(db_path) as conn:
+        conn.executemany("UPDATE vouchers SET alerted=1 WHERE id=?", [(r["id"],) for r in items])
+    logging.info("Gateway accepted a digest of %d research leads; delivery unverified.", len(items))
+    return len(items)
 
 
 def main() -> None:
@@ -350,11 +343,21 @@ def main() -> None:
     if args.list:
         list_records()
     if args.auto:
+        if not args.callmebot_key:
+            raise ValueError("CALLMEBOT_KEY must be configured for automatic alerts")
         ingest_feeds()
-        if args.callmebot_key:
+        if os.environ.get("RADAR_BASELINE") == "1":
+            with get_db_connection() as conn:
+                conn.execute("UPDATE vouchers SET alerted=3 WHERE alerted=0")
+            logging.warning("Silent baseline saved. Future new leads can notify.")
+        else:
             dispatch_alerts(args.callmebot_key)
         list_records()
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except (OSError, ValueError, RuntimeError, sqlite3.Error):
+        logging.error("Run failed. Check feed availability, storage and secret configuration. Sensitive details withheld.")
+        sys.exit(1)
