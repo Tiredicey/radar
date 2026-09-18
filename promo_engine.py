@@ -310,7 +310,11 @@ def send_messenger_callmebot(apikey: str, text: str) -> bool:
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
-            return resp.status == 200
+            body = resp.read().decode('utf-8', errors='replace')
+            logging.info("CallMeBot gateway output: %s", body.strip()[:160])
+            if "invalid" in body.lower() or "error" in body.lower():
+                return False
+            return True
     except urllib.error.URLError as err:
         logging.error("CallMeBot delivery failed: %s", err)
         return False
