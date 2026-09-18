@@ -8,6 +8,7 @@ Target: STI College Lipa / Direct Cash Inflow Priority Pipeline
 import argparse
 import datetime
 import hashlib
+import html
 import json
 import logging
 import os
@@ -280,14 +281,33 @@ def list_records(db_path: str = DATABASE_FILE, limit: int = 15) -> None:
     print("-" * 85)
 
 
+def classify_callmebot_response(body: str) -> str:
+    visible = re.sub(r"<(script|style)\b[^>]*>.*?</\1>", " ", body, flags=re.I | re.S)
+    visible = html.unescape(re.sub(r"<[^>]*>", " ", visible))
+    visible = re.sub(r"\s+", " ", visible).strip().lower()
+    for pattern, reason in [
+        (r"(?:invalid|wrong|incorrect|missing)\s*(?:api[ -]?key|key)", "invalid-key"),
+        (r"too many|rate limit|quota|wait.{0,15}(?:seconds|minutes)", "rate-limited"),
+        (r"too long|too large|maximum.{0,20}(?:length|characters)", "message-too-long"),
+        (r"not activated|not authorized|blocked|disabled", "not-authorized"),
+        (r"\berror\s*[:!]|\bfailed\b|\bnot (?:be )?(?:sent|queued|accepted)\b|\bno message", "provider-error")
+    ]:
+        if re.search(pattern, visible):
+            return reason
+    if re.search(r"\bmessage\s+(?:(?:was|has been|is|successfully)\s+)*(?:sent|queued|accepted)\b|\bsuccessfully\s+(?:sent|queued)\b", visible):
+        return "accepted"
+    return "unrecognized-response"
+
+
 def send_messenger_callmebot(apikey: str, text: str) -> bool:
     url = "https://api.callmebot.com/facebook/send.php?" + urllib.parse.urlencode({"apikey": apikey, "text": text})
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
             body = resp.read(4096).decode('utf-8', errors='replace')
-            logging.info("CallMeBot responded; response body withheld.")
-            return not re.search(r"invalid|error|failed|not sent|not queued|not accepted", body, re.I) and bool(re.search(r"success|message (?:sent|queued|accepted)", body, re.I))
+            result = classify_callmebot_response(body)
+            logging.info("CallMeBot result=%s http=%s message_chars=%d; response body withheld.", result, resp.status, len(text))
+            return result == "accepted"
     except urllib.error.URLError as err:
         logging.error("CallMeBot request failed; credential-bearing details withheld.")
         return False
@@ -299,12 +319,20 @@ def dispatch_alerts(callmebot_key: str, db_path: str = DATABASE_FILE) -> int:
     with get_db_connection(db_path) as conn:
         conn.execute("BEGIN IMMEDIATE")
         items = conn.execute("SELECT id,title,link FROM vouchers WHERE alerted=0 ORDER BY is_local DESC,discovered_at DESC LIMIT 5").fetchall()
+        text = "Radar research leads. Awards, eligibility and deadlines unverified."
+        selected = []
+        for item in items:
+            candidate = text + "\n\n" + item["title"][:220] + "\n" + item["link"]
+            if len(candidate) <= 1500 and len(urllib.parse.urlencode({"text": candidate})) <= 6000:
+                text = candidate
+                selected.append(item)
+        items = selected
         conn.executemany("UPDATE vouchers SET alerted=2 WHERE id=?", [(r["id"],) for r in items])
     if not items:
         return 0
-    text = "Radar research leads. Awards, eligibility and deadlines unverified.\n\n" + "\n\n".join(r["title"] + "\n" + r["link"] for r in items)
-    if not send_messenger_callmebot(callmebot_key, text[:3500]):
-        raise RuntimeError("Notification outcome uncertain; no automatic retry")
+    if not send_messenger_callmebot(callmebot_key, text):
+        logging.error("Notification not confirmed. See CallMeBot result above. Feed collection succeeded; no automatic retry in this database.")
+        raise RuntimeError("Notification unconfirmed")
     with get_db_connection(db_path) as conn:
         conn.executemany("UPDATE vouchers SET alerted=1 WHERE id=?", [(r["id"],) for r in items])
     logging.info("Gateway accepted a digest of %d research leads; delivery unverified.", len(items))

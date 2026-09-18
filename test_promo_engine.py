@@ -22,5 +22,19 @@ class EvidenceTests(unittest.TestCase):
         self.assertNotEqual(engine.generate_entry_id('grant', 'https://example.org/a'), engine.generate_entry_id('grant', 'https://example.org/b'))
 
 
+class GatewayTests(unittest.TestCase):
+    def test_acknowledgements(self):
+        for body in ['Message sent', '<b>Message</b> has been successfully sent', 'Message queued']:
+            self.assertEqual(engine.classify_callmebot_response(body), 'accepted')
+    def test_unknown_is_not_success(self):
+        for body in ['', 'OK', 'success statistics', '<html>maintenance</html>']:
+            self.assertEqual(engine.classify_callmebot_response(body), 'unrecognized-response')
+    def test_rejections(self):
+        for body, result in [('Invalid API key', 'invalid-key'), ('Message too long', 'message-too-long'), ('Too many requests', 'rate-limited'), ('Account disabled', 'not-authorized'), ('ERROR: Message not sent', 'provider-error'), ('Message could not be sent', 'provider-error')]:
+            self.assertEqual(engine.classify_callmebot_response(body), result)
+    def test_nonvisible_error_not_failure(self):
+        self.assertEqual(engine.classify_callmebot_response('<script>error: failed</script><p>Message sent</p>'), 'accepted')
+
+
 if __name__ == '__main__':
     unittest.main()
