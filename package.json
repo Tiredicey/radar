@@ -16,6 +16,8 @@
     "@hono/vite-cloudflare-pages": "^0.4.2",
     "wrangler": "^4.0.0",
     "@playwright/test": "^1.55.0",
-    "@axe-core/playwright": "^4.10.0"
+    "@axe-core/playwright": "^4.10.0",
+    "esbuild": "0.25.12",
+    "miniflare": "5.20260918.0-alpha"
   }
 }
