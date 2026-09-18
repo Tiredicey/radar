@@ -14,15 +14,21 @@ app.get('/api/leads',async c=>{
  if(lock.meta.changes){
   try{await Promise.all(feeds.map(async f=>{
    const old=await db.prepare('SELECT * FROM cache WHERE id=?').bind(f.id).first<any>()
-   if(old&&now-old.checked<10800000)return
+   if(old&&now-old.checked<(old.ok?10800000:60000))return
+   let phase='fetch',status=0
    try{
-    const r=await fetch(f.url,{signal:AbortSignal.timeout(12000)})
+    const r=await fetch(f.url,{signal:AbortSignal.timeout(12000),headers:{Accept:'application/rss+xml, application/xml;q=0.9','User-Agent':'CapitalRadar/2.0'}})
+    status=r.status
     if(!r.ok||!r.body)throw Error('Feed unavailable')
+    phase='read'
     const reader=r.body.getReader(),decoder=new TextDecoder();let xml='',size=0
     while(true){const chunk=await reader.read();if(chunk.done)break;size+=chunk.value.length;if(size>1500000){await reader.cancel();throw Error('Feed too large')}xml+=decoder.decode(chunk.value,{stream:true})}
     xml+=decoder.decode()
-    await db.prepare('INSERT OR REPLACE INTO cache VALUES(?,?,?,?,?)').bind(f.id,JSON.stringify(await parseFeed(xml,f.id)),now,1,null).run()
-   }catch{await db.prepare('INSERT OR REPLACE INTO cache VALUES(?,?,?,?,?)').bind(f.id,old?.payload||'[]',now,0,'Source check failed. Prior results retained.').run()}
+    phase='parse'
+    const items=await parseFeed(xml,f.id)
+    phase='storage'
+    await db.prepare('INSERT OR REPLACE INTO cache VALUES(?,?,?,?,?)').bind(f.id,JSON.stringify(items),now,1,null).run()
+   }catch{await db.prepare('INSERT OR REPLACE INTO cache VALUES(?,?,?,?,?)').bind(f.id,old?.payload||'[]',now,0,`Source ${phase} failed (HTTP ${status||'unavailable'}). Prior results retained. Retry eligible after 60 seconds.`).run()}
   }))}finally{await db.prepare('UPDATE lease SET until=0 WHERE id=1').run()}
  }
  const {results}=await db.prepare('SELECT * FROM cache').all<any>()
