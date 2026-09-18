@@ -1,0 +1,26 @@
+[
+  {
+    "name": "DOST-SEI JLSS & PCIEERD Research Grants",
+    "url": "https://news.google.com/rss/search?q=(DOST+OR+PCIEERD+OR+SEI)+AND+(scholarship+OR+grant+OR+JLSS+OR+stipend+OR+bounty)+when:30d&hl=en-PH&gl=PH&ceid=PH:en",
+    "type": "rss",
+    "id": "dost"
+  },
+  {
+    "name": "CHED TDP-TES & UniFAST Subsidies",
+    "url": "https://news.google.com/rss/search?q=(CHED+OR+UniFAST)+AND+(TDP+OR+TES+OR+scholarship+OR+subsidy+OR+grant)+when:30d&hl=en-PH&gl=PH&ceid=PH:en",
+    "type": "rss",
+    "id": "ched"
+  },
+  {
+    "name": "DICT Hack4Gov & Startup Challenges",
+    "url": "https://news.google.com/rss/search?q=DICT+AND+(Hack4Gov+OR+\"Startup+Challenge\"+OR+bounty+OR+hackathon+OR+grant)+when:30d&hl=en-PH&gl=PH&ceid=PH:en",
+    "type": "rss",
+    "id": "dict"
+  },
+  {
+    "name": "Batangas & Lipa Educational Funds",
+    "url": "https://news.google.com/rss/search?q=(Batangas+OR+Lipa)+AND+(scholarship+OR+\"educational+assistance\"+OR+grant)+when:30d&hl=en-PH&gl=PH&ceid=PH:en",
+    "type": "rss",
+    "id": "local"
+  }
+]

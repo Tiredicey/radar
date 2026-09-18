@@ -1,0 +1,21 @@
+{
+  "name": "radar",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "test": "node --test tests/*.test.js && python3 -m unittest -v test_promo_engine",
+    "db:local": "wrangler d1 migrations apply radar --local"
+  },
+  "dependencies": {
+    "hono": "^4.13.8",
+    "fast-xml-parser": "^5.11.1"
+  },
+  "devDependencies": {
+    "vite": "^6.4.3",
+    "@hono/vite-cloudflare-pages": "^0.4.2",
+    "wrangler": "^4.0.0",
+    "@playwright/test": "^1.55.0",
+    "@axe-core/playwright": "^4.10.0"
+  }
+}

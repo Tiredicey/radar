@@ -1,0 +1,13 @@
+{
+  "name": "capital-radar",
+  "compatibility_date": "2026-09-01",
+  "pages_build_output_dir": "./dist",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "radar",
+      "database_id": "local-radar",
+      "migrations_dir": "migrations"
+    }
+  ]
+}
