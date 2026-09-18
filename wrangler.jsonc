@@ -6,7 +6,7 @@
     {
       "binding": "DB",
       "database_name": "radar",
-      "database_id": "4c82cdf7-e03c-493e-9150-5361c8793dd9r",
+      "database_id": "4c82cdf7-e03c-493e-9150-5361c8793dd9",
       "migrations_dir": "migrations"
     }
   ]
