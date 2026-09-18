@@ -1,7 +1,7 @@
 import {Hono} from 'hono'
 import {serveStatic} from 'hono/cloudflare-workers'
 import {secureHeaders} from 'hono/secure-headers'
-import {parseFeed} from './core.js'
+import {parseFeed,relevant} from './core.js'
 import feeds from '../feeds.json'
 const app=new Hono<{Bindings:{DB:D1Database}}>()
 app.use('*',secureHeaders({contentSecurityPolicy:{defaultSrc:["'self'"],scriptSrc:["'self'"],styleSrc:["'self'"],objectSrc:["'none'"],frameAncestors:["'none'"]},referrerPolicy:'no-referrer'}))
@@ -25,8 +25,8 @@ app.get('/api/leads',async c=>{
   }))}finally{await db.prepare('UPDATE lease SET until=0 WHERE id=1').run()}
  }
  const {results}=await db.prepare('SELECT * FROM cache').all<any>()
- const items=[...new Map(results.flatMap(r=>JSON.parse(r.payload)).filter(i=>Date.parse(i.published)>now-30*86400000).map(i=>[i.id,i])).values()]
- return c.json({items,sources:feeds.map(f=>({...f,health:results.find(r=>r.id===f.id)||null})),checking:!lock.meta.changes})
+ const items=[...new Map(results.flatMap(r=>JSON.parse(r.payload)).filter(i=>Date.parse(i.published)>now-30*86400000&&relevant(i.title+" "+i.summary)).map(i=>[i.id,i])).values()]
+ return c.json({items,sources:feeds.map(f=>({...f,health:(()=>{const r=results.find(r=>r.id===f.id);return r?{checked:r.checked,ok:r.ok,error:r.error,count:JSON.parse(r.payload).length}:null})()})),checking:!lock.meta.changes})
 })
 app.onError((error,c)=>{console.error(error.name);return c.json({error:'Service unavailable. Stored data is retained.'},503)})
 export default app

@@ -8,8 +8,11 @@ export function amount(text) {
   const value=Math.round(Number(m[1].replaceAll(',',''))*({k:1e3,thousand:1e3,m:1e6,million:1e6,b:1e9,billion:1e9}[m[2]?.toLowerCase()]||1))
   return {value:Number.isSafeInteger(value)?value:0,evidence:m[0].trim()}
 }
+export function relevant(text) {
+  return /\b(scholarships?|scholars|students?|educational assistance|tuition|stipend|hackathon|hack4gov|bounty|startup)\b|research.{0,30}(?:grant|fund)|grant.{0,30}research/i.test(text)
+}
 export function classify(text) {
-  return {category:/hackathon|hack4gov|bounty|startup challenge|competition/i.test(text)?'competitions':/scholarship|jlss|scholars/i.test(text)?'scholarships':'grants',local:/\b(lipa|batangas|calabarzon|region (4a|iv-a)|southern tagalog)\b/i.test(text),signal:! /\b(closed|awarded|graduates|deadline passed)\b/i.test(text)&&/\b(apply now|applications? (are |is )?open|accepting applications|call for (applications|proposals))\b/i.test(text)}
+  return {category:/hackathon|hack4gov|bounty|startup challenge|competition/i.test(text)?'competitions':/scholarship|jlss|scholars/i.test(text)?'scholarships':'grants',local:/\b(lipa|batangas|calabarzon|region (4a|iv-a)|southern tagalog)\b/i.test(text),signal:! /\b(closed|awarded|graduates|deadline passed)\b/i.test(text)&&/\b(apply|applications? (are |is )?(open|until|deadline)|accepting applications|call for (applications|proposals))\b/i.test(text)}
 }
 export function text(value) {
   return typeof value==='string'?value.replace(/<[^>]*>/g,' ').replace(/&(?:nbsp|amp|lt|gt|quot|apos);/g,v=>({'&nbsp;':' ','&amp;':'&','&lt;':'<','&gt;':'>','&quot;':'"','&apos;':"'"})[v]).replace(/\s+/g,' ').trim():''
@@ -22,7 +25,7 @@ export async function parseFeed(xml,source,now=new Date()) {
   for(const item of (Array.isArray(raw)?raw:[raw]).slice(0,100)) {
     const title=text(item.title).slice(0,500),summary=text(item.description).slice(0,2000),link=safeURL(item.link),published=Date.parse(item.pubDate),full=title+' '+summary
     if(!title||!link||!Number.isFinite(published)||published<now.getTime()-30*86400000||published>now.getTime()+86400000)continue
-    if(!/scholarship|scholars|grant|subsidy|stipend|educational assistance|hackathon|hack4gov|bounty|startup challenge|jlss|unifast/i.test(full)||/minimum (spend|purchase)|checkout promo|application fee|processing fee|guaranteed income|deposit to claim/i.test(full))continue
+    if(!relevant(full)||/minimum (spend|purchase)|checkout promo|application fee|processing fee|guaranteed income|deposit to claim/i.test(full))continue
     const publisher_url=safeURL(item.source?.['@_url'])
     const blocked=['picodi.com','iprice.ph','couponbirds.com','retailmenot.com']
     if([link,publisher_url].filter(Boolean).some(u=>blocked.some(d=>new URL(u).hostname===d||new URL(u).hostname.endsWith('.'+d))))continue
