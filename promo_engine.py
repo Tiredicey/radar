@@ -156,40 +156,12 @@ def is_blacklisted(url: str, text: str) -> bool:
 
 
 def extract_monetary_reward(text: str) -> int:
-    clean = text.replace(chr(0x20b1), "P").replace("Php", "P").replace("PHP", "P")
-    
-    # Regex for monetary figures like P680-K, P50,000, P40K
-    match = re.search(r'P\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]+)?)\s*[-]?\s*([kKmMbB])?', clean)
-    if match:
-        raw_num = match.group(1).replace(",", "")
-        multiplier_str = match.group(2)
-        try:
-            val = float(raw_num)
-            if multiplier_str:
-                m = multiplier_str.upper()
-                if m == "K":
-                    val *= 1000
-                elif m == "M":
-                    val *= 1000000
-                elif m == "B":
-                    val *= 1000000000
-            # Discard general macro-budget lines (e.g. over 50M) to focus on actionable student funding
-            if 1000 <= val <= 50000000:
-                return int(val)
-        except ValueError:
-            pass
-
-    # Known institutional student funding baselines
-    t_lower = clean.lower()
-    if "dost" in t_lower and any(w in t_lower for w in ["jlss", "scholarship", "stipend"]):
-        return 80000  # DOST JLSS tuition support + monthly stipend benchmark
-    if "ched" in t_lower and any(w in t_lower for w in ["tes", "tdp", "subsidy", "merit"]):
-        return 40000  # CHED TES subsidy benchmark per school year
-    if any(w in t_lower for w in ["hack4gov", "startup challenge", "bounty", "hackathon"]):
-        return 50000  # Regional tech competition prize baseline
-    if "batangas" in t_lower and any(w in t_lower for w in ["educational assistance", "scholarship"]):
-        return 10000  # Provincial student grant per semester
-    return 0
+    match = re.search(r"(?:₱|\bPHP\b|\bP(?=\s*\d))\s*(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:-?\s*(thousand|million|billion|[kmb])\b)?", text, re.I)
+    if not match:
+        return 0
+    factor = {"k": 1000, "thousand": 1000, "m": 1000000, "million": 1000000, "b": 1000000000, "billion": 1000000000}.get((match[2] or "").lower(), 1)
+    amount = float(match[1].replace(",", "")) * factor
+    return round(amount) if 0 <= amount < 2 ** 53 else 0
 
 
 def parse_rss(feed_url: str) -> list[dict]:
@@ -294,10 +266,10 @@ def list_records(db_path: str = DATABASE_FILE, limit: int = 15) -> None:
         print("No capital records found in database.")
         return
 
-    print(f"\n{'ID':<18} | {'EST. PAYOUT':<12} | {'LOCAL':<5} | {'TITLE'}")
+    print(f"\n{'ID':<18} | {'SOURCE AMOUNT':<12} | {'LOCAL':<5} | {'TITLE'}")
     print("-" * 85)
     for row in rows:
-        payout_str = f"P{row['payout_php']:,}" if row['payout_php'] > 0 else "APPLY"
+        payout_str = f"P{row['payout_php']:,}" if row['payout_php'] > 0 else "UNKNOWN"
         local_str = "YES" if row["is_local"] else "NO"
         clean_title = row['title'].replace(chr(0x20b1), 'P')[:46]
         print(f"{row['id']:<18} | {payout_str:<12} | {local_str:<5} | {clean_title}")
@@ -311,12 +283,12 @@ def send_messenger_callmebot(apikey: str, text: str) -> bool:
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
             body = resp.read().decode('utf-8', errors='replace')
-            logging.info("CallMeBot gateway output: %s", body.strip()[:160])
+            logging.info("CallMeBot responded; response body withheld.")
             if "invalid" in body.lower() or "error" in body.lower():
                 return False
             return True
     except urllib.error.URLError as err:
-        logging.error("CallMeBot delivery failed: %s", err)
+        logging.error("CallMeBot request failed; credential-bearing details withheld.")
         return False
 
 
@@ -333,7 +305,7 @@ def dispatch_alerts(callmebot_key: str, db_path: str = DATABASE_FILE) -> int:
         unalerted = cursor.fetchall()
 
         for item in unalerted:
-            payout_badge = f"[PHP {item['payout_php']:,}]" if item['payout_php'] > 0 else "[CASH INFLOW]"
+            payout_badge = f"[PHP {item['payout_php']:,} MENTIONED, NOT VERIFIED PAYOUT]" if item['payout_php'] > 0 else "[AMOUNT UNVERIFIED]"
             local_badge = "[LIPA / BATANGAS]" if item['is_local'] else "[NATIONAL GRANT]"
             message_text = f"{payout_badge} {local_badge}\n{item['title']}\nSource: {item['link']}"
 
@@ -351,7 +323,7 @@ def main() -> None:
     parser.add_argument("--init-db", action="store_true", help="Initialize or upgrade capital storage")
     parser.add_argument("--fetch", action="store_true", help="Fetch and filter capital inflows")
     parser.add_argument("--list", action="store_true", help="Display capital records ranked by payout")
-    parser.add_argument("--callmebot-key", type=str, help="CallMeBot Messenger API key")
+    parser.add_argument("--callmebot-key", type=str, default=os.environ.get("CALLMEBOT_KEY"), help="CallMeBot Messenger API key")
     parser.add_argument("--auto", action="store_true", help="Run fetch and dispatch in single pipeline execution")
     parser.add_argument("--verbose", action="store_true", help="Enable debug logging")
 
@@ -372,8 +344,7 @@ def main() -> None:
         parser.print_help()
         sys.exit(1)
 
-    if args.init_db:
-        init_db()
+    init_db()
     if args.fetch:
         ingest_feeds()
     if args.list:

@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.wrangler/
+.dev.vars*
+.env*
+config.json
+*.db
+*.db-*
+__pycache__/
+*.pyc
+*.log
+artifacts/
+test-results/
+playwright-report/
+*.tar.gz
