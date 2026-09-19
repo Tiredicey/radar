@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import {readFile} from 'node:fs/promises'
 import {execFileSync} from 'node:child_process'
 import {chromium,expect} from '@playwright/test'
-const assets=Object.fromEntries(await Promise.all(['index.html','app.js','style.css'].map(async name=>[name,await readFile(new URL('../public/static/'+name,import.meta.url),'utf8')])))
+const assets=Object.fromEntries(await Promise.all(['index.html','app.js','legal.js','style.css'].map(async name=>[name,await readFile(new URL('../public/static/'+name,import.meta.url),'utf8')])))
 const feeds=JSON.parse(await readFile(new URL('../feeds.json',import.meta.url),'utf8'))
 const now=new Date().toISOString()
 const lead={id:'fixture',title:'Test scholarship applications open',summary:'Test fixture only.',publisher:'Fixture institution',source:'dost',category:'scholarships',local:false,signal:true,published:now,collected:now,amount:{value:0,evidence:''},link:'https://example.org/fixture'}
@@ -15,18 +15,18 @@ async function open(t,response=snapshot()){
  const context=await browser.newContext({viewport:{width:1280,height:900}})
  t.after(()=>context.close())
  const page=await context.newPage(),errors=[]
- const c={page,response,status:200,abort:false,requests:[]}
+ const c={page,response,status:200,abort:false,requests:[],allRequests:[]}
  page.on('pageerror',e=>errors.push(e.message));t.after(()=>assert.deepEqual(errors,[]))
  await page.route('**/*',async route=>{
-  const r=route.request(),u=new URL(r.url());assert.equal(u.origin,'https://radar.test')
+  const r=route.request(),u=new URL(r.url());c.allRequests.push(r.method()+' '+u.href);assert.equal(u.origin,'https://radar.test')
   if(u.pathname==='/api/leads'){
    c.requests.push(r.method()+' '+u.pathname)
    return c.abort?route.abort('failed'):route.fulfill({status:c.status,json:c.response})
   }
   const name=u.pathname==='/static/'?'index.html':u.pathname.split('/').pop()
-  return route.fulfill({status:assets[name]?200:404,body:assets[name]||'',contentType:{'index.html':'text/html','app.js':'text/javascript','style.css':'text/css'}[name]||'text/plain'})
+  return route.fulfill({status:assets[name]?200:404,body:assets[name]||'',contentType:{'index.html':'text/html','app.js':'text/javascript','legal.js':'text/javascript','style.css':'text/css'}[name]||'text/plain'})
  })
- c.go=async()=>{await page.goto('https://radar.test/static/');await expect(page.locator('#grid')).toHaveAttribute('aria-busy','false')}
+ c.go=async(hash='')=>{await page.goto('https://radar.test/static/'+hash);await expect(page.locator('#grid')).toHaveAttribute('aria-busy','false')}
  c.refresh=async()=>{await page.locator('#refresh').click();await expect(page.locator('#grid')).toHaveAttribute('aria-busy','false')}
  return c
 }
@@ -183,13 +183,109 @@ test('copy-link waits for clipboard completion before reporting success',async t
  await expect(c.page.locator('#toast')).toBeHidden()
  await c.page.evaluate(()=>window.completeClipboard());await expect(c.page.locator('#toast')).toHaveText('Source link copied.')
 })
+test('legal navigation has unique controls, supports hashes and preserves funding filters',async t=>{
+ const c=await open(t);await c.go();const p=c.page
+ await expect(p.locator('[data-view="discover"]')).toHaveCount(1)
+ await p.locator('[data-category="scholarships"]').click();await p.locator('#location').selectOption('local')
+ await p.locator('#sort').selectOption('new');await p.locator('#only-signals').check();await p.locator('#search').fill('scholarship')
+ await p.locator('[data-view="legal"]').click()
+ await expect(p.locator('body')).toHaveAttribute('data-current-view','legal')
+ assert.equal(await p.locator('body').getAttribute('data-view'),null)
+ await expect(p.locator('[data-view="legal"]')).toHaveAttribute('aria-current','page')
+ await expect(p.locator('h1')).toHaveText('Jurisprudence, Traced')
+ await expect(p.locator('#breadcrumb')).toHaveText('Jurisprudence, Traced')
+ assert.equal(new URL(p.url()).hash,'#legal')
+ for(const id of ['refresh','refresh-help','notice','discover'])await expect(p.locator('#'+id)).toBeHidden()
+ await p.locator('[data-view="discover"]').click()
+ await expect(p.locator('#refresh')).toBeVisible();await expect(p.locator('#refresh-help')).toBeVisible()
+ await expect(p.locator('#search')).toHaveValue('scholarship');await expect(p.locator('#location')).toHaveValue('local')
+ await expect(p.locator('#sort')).toHaveValue('new');await expect(p.locator('#only-signals')).toBeChecked()
+ await expect(p.locator('[data-category="scholarships"]')).toHaveAttribute('aria-pressed','true')
+ await p.evaluate(()=>location.hash='legal');await expect(p.locator('#legal')).toBeVisible()
+ await p.reload();await expect(p.locator('#legal')).toBeVisible();await expect(p.locator('#grid')).toHaveAttribute('aria-busy','false')
+ await expect(p.locator('#refresh')).toBeHidden()
+ await p.evaluate(()=>location.hash='not-a-view');await expect(p.locator('#discover')).toBeVisible()
+ await expect(p.locator('[data-view="discover"]')).toHaveCount(1)
+ await expect(p.locator('[data-view="discover"]')).toHaveAttribute('aria-current','page')
+})
+test('legal source links encode literal input and never submit queries while preparing',async t=>{
+ const c=await open(t);await c.go('#legal');const p=c.page,requests=[...c.allRequests]
+ const sources=[['Supreme Court E-Library','elibrary.judiciary.gov.ph','https://elibrary.judiciary.gov.ph/','Official judiciary source'],['Supreme Court','sc.judiciary.gov.ph','https://sc.judiciary.gov.ph/','Official judiciary source'],['Lawphil','lawphil.net','https://lawphil.net/','Nonofficial reference'],['ChanRobles','chanrobles.com','https://www.chanrobles.com/','Nonofficial reference']]
+ await expect(p.locator('#legal-links article')).toHaveCount(4)
+ await expect(p.locator('#legal-links .button')).toHaveCount(0)
+ for(const [i,[name,,home,kind]] of sources.entries()){
+  const card=p.locator('#legal-links article').nth(i)
+  await expect(card.locator('h3')).toHaveText(name);await expect(card.locator('small')).toHaveText(kind)
+  await expect(card.locator('a')).toHaveAttribute('href',home)
+ }
+ const query='G.R. 12345 "due process" & <img src=x onerror="window.legalInjected=1"> José'
+ await p.locator('#legal-query').fill('  '+query+'  ')
+ for(const exact of [false,true]){
+  await p.locator('#legal-exact').setChecked(exact)
+  await p.getByRole('button',{name:'Prepare search links',exact:true}).click()
+  await expect(p.locator('#legal-links .button')).toHaveCount(4)
+  for(const [i,[,domain]] of sources.entries()){
+   const a=p.locator('#legal-links .button').nth(i),url=new URL(await a.getAttribute('href'))
+   assert.equal(url.origin,'https://www.google.com');assert.equal(url.pathname,'/search')
+   assert.deepEqual([...url.searchParams],[['as_sitesearch',domain],[exact?'as_epq':'as_q',query]])
+   await expect(a).toHaveAttribute('target','_blank');await expect(a).toHaveAttribute('rel','noopener noreferrer')
+  }
+ }
+ await p.locator('#legal-query').press('Enter')
+ await expect(p.locator('#legal-status')).toHaveText('Search links prepared. Choose a source; results open on Google.')
+ await expect(p.locator('#legal img')).toHaveCount(0);assert.equal(await p.evaluate(()=>window.legalInjected),undefined)
+ assert.deepEqual(c.allRequests,requests)
+ await expect(p.locator('#legal')).toContainText('not a case database or a citator')
+ await expect(p.locator('#legal-form')).toContainText('Do not enter confidential client or case details')
+})
+test('legal glossary has six source-linked entries with keyboard context and truthful filtering',async t=>{
+ const c=await open(t);await c.go('#legal');const p=c.page
+ const constitution='https://lawphil.net/consti/cons1987.html',handbook='https://elibrary.judiciary.gov.ph/thebookshelf/showdocs/46/63230'
+ const citations=[['Due process',constitution,'1987 Constitution, Article III, Section 1'],['Equal protection',constitution,'1987 Constitution, Article III, Section 1'],['Grave abuse of discretion',constitution,'1987 Constitution, Article VIII, Section 1, paragraph 2'],['Ratio decidendi',handbook,'Fundamentals of Decision Writing for Judges, Chapter Three: Ratio Decidendi'],['Obiter dictum',handbook,'Fundamentals of Decision Writing for Judges, Chapter Three: Obiter Dictum'],['Dispositive portion',handbook,'Fundamentals of Decision Writing for Judges, Chapter Three: Dispositive Portion']]
+ await expect(p.locator('#legal-terms article')).toHaveCount(6)
+ await expect(p.locator('#legal-count')).toHaveText('6 learning entries shown.')
+ for(const [i,[name,url,cite]] of citations.entries()){
+  const card=p.locator('#legal-terms article').nth(i),details=card.locator('details'),summary=card.locator('summary')
+  await expect(card.locator('h3')).toHaveText(name)
+  await summary.focus();await p.keyboard.press('Enter');await expect(details).toHaveAttribute('open','')
+  await expect(details.locator('a')).toHaveText(cite);await expect(details.locator('a')).toHaveAttribute('href',url)
+  await expect(details).toContainText(i<3?'nonofficial reference':'not itself a judicial holding')
+  await expect(details).toContainText('Subsequent treatment and current controlling status have not been checked.')
+  await expect(details.locator('blockquote')).toHaveCount(i<3?0:1)
+  await p.keyboard.press('Space');assert.equal(await details.getAttribute('open'),null)
+ }
+ await p.locator('#legal-filter').fill('  RATIO DECIDENDI  ')
+ await expect(p.locator('#legal-terms h3')).toHaveText('Ratio decidendi')
+ await p.locator('#legal-filter').fill('fallo');await expect(p.locator('#legal-terms h3')).toHaveText('Dispositive portion')
+ await p.locator('#legal-filter').fill('no such legal entry')
+ await expect(p.locator('#legal-terms article')).toHaveCount(0)
+ await expect(p.locator('#legal-count')).toHaveText('No matching learning entries. This is a small glossary, not a complete legal index.')
+})
+test('legal research-this-term and clear reset local research without clearing funding search',async t=>{
+ const c=await open(t);await c.go();const p=c.page
+ await p.locator('#search').fill('scholarship');await p.locator('[data-view="legal"]').click()
+ const requests=[...c.allRequests]
+ await p.locator('#legal-exact').check();await p.locator('#legal-filter').fill('ratio decidendi')
+ await p.getByRole('button',{name:'Research this term',exact:true}).click()
+ await expect(p.locator('#legal-query')).toHaveValue('Ratio decidendi');await expect(p.locator('#legal-query')).toBeFocused()
+ await expect(p.locator('#legal-links .button')).toHaveCount(4)
+ for(const href of await p.locator('#legal-links .button').evaluateAll(links=>links.map(a=>a.href)))assert.equal(new URL(href).searchParams.get('as_epq'),'Ratio decidendi')
+ await p.locator('#legal-clear').click()
+ for(const id of ['legal-query','legal-filter'])await expect(p.locator('#'+id)).toHaveValue('')
+ await expect(p.locator('#legal-exact')).not.toBeChecked();await expect(p.locator('#legal-query')).toBeFocused()
+ await expect(p.locator('#legal-terms article')).toHaveCount(6);await expect(p.locator('#legal-links .button')).toHaveCount(0)
+ await expect(p.locator('#legal-status')).toHaveText('Enter a topic or phrase to prepare source-specific search links.')
+ await p.locator('#legal-query').fill('   ');await expect(p.locator('#legal-links .button')).toHaveCount(0)
+ assert.deepEqual(c.allRequests,requests)
+ await p.locator('[data-view="discover"]').click();await expect(p.locator('#search')).toHaveValue('scholarship')
+})
 test('attribution is absent and all views fit mobile/desktop in light/dark',async t=>{
  const c=await open(t);await c.go();const p=c.page
  for(const width of [320,390,768,1280]){
   await p.setViewportSize({width,height:900})
   for(const theme of ['light','dark']){
    await p.evaluate(theme=>document.documentElement.dataset.theme=theme,theme)
-   for(const view of ['discover','sources','guide']){
+   for(const view of ['discover','sources','guide','legal']){
     await p.locator(`[data-view="${view}"]`).click()
     await expect(p.locator('body')).not.toContainText("made by @Atienzas'assistant")
     assert.equal(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`${width}px ${theme} ${view}`)
