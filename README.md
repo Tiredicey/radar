@@ -4,6 +4,8 @@ Philippine scholarship, education-funding and innovation lead research. This is 
 
 ## Implemented
 
+- Jurisprudence, Traced: four labeled source directories, local source-specific Google search links, exact-phrase mode, six filterable learning entries, keyboard-expandable source context, research-this-term and clear/reset controls.
+
 - Hono / Cloudflare Pages dashboard with light/dark themes, mobile layouts, search, category/location/application-wording filters, sorting, lead details, source links, copy-link action and CSV export.
 - Collector mode: `publish_dashboard.py` fetches four RSS searches in GitHub Actions and uploads authenticated snapshots to D1. Dashboard visits read those snapshots without direct Cloudflare-to-Google fetching.
 - Direct mode, when no valid-length sync secret is configured: visits can check eligible feeds, using a three-hour successful-check cache and a 60-second failed-check retry interval. Prior records survive feed failures.
@@ -18,6 +20,7 @@ Philippine scholarship, education-funding and innovation lead research. This is 
 | `/static/#discover` | Search and filter collected leads |
 | `/static/#sources` | Source health, collection mode and alert-history limits |
 | `/static/#guide` | Application-verification guidance |
+| `/static/#legal` | Source-linked Philippine legal research and terminology |
 | `GET /api/leads` | Public items, source health, stale flags, checking flag and mode |
 | `GET /api/health` | D1 schema availability and collectorConfigured flag |
 | `POST /api/feeds/:id` | Authenticated RSS upload for dost, ched, dict or local; Bearer token and X-Collected-At epoch milliseconds required |
@@ -27,6 +30,14 @@ Philippine scholarship, education-funding and innovation lead research. This is 
 Use Discover to filter leads, review their evidence and visit original sources. Export downloads the current filtered results, including matches beyond the visible page. Sources & health distinguishes fresh, stale, failed and unchecked sources. Counts describe available snapshots, not all possible opportunities.
 
 In collector mode, Refresh reloads the stored snapshot; it does not trigger GitHub Actions. Inspect workflow runs for collection failures. The dashboard does not apply for programs, send payments or trigger notifications.
+
+### Legal research
+
+Enter a topic, case name, docket number or phrase. Typing and preparing links do not submit the query. Opening a search link sends it to Google using `as_sitesearch` and either `as_q` or exact-phrase `as_epq`. Results may be incomplete. Do not enter confidential client or case details. Filter learning entries, expand Source and context, or use Research this term. Clear research resets legal inputs and restores query focus without clearing funding filters.
+
+The directory labels https://elibrary.judiciary.gov.ph/ and https://sc.judiciary.gov.ph/ as official judiciary sources; https://lawphil.net/ and https://www.chanrobles.com/ are nonofficial references. The glossary cites [Lawphil's nonofficial hosting of the 1987 Constitution](https://lawphil.net/consti/cons1987.html) for Article III, Section 1 and Article VIII, Section 1. Ratio decidendi, obiter dictum and dispositive portion cite [Fundamentals of Decision Writing for Judges, Chapter Three](https://elibrary.judiciary.gov.ph/thebookshelf/showdocs/46/63230), an educational handbook, not itself a judicial holding. Excerpts are separate from learning explanations.
+
+The inherited source-check date is 19 September 2026; the handbook publication date is not established. Browser tests verify citation URLs and interface behavior, not external availability or legal authority. No case-specific analysis, subsequent-treatment review or current-controlling-status determination has been completed. This is not legal advice, a case database, a legal-answer engine, a citator or continuous legal verification. Directory and glossary content are static; legal queries are transient browser inputs with no added API or D1 storage.
 
 ## Local development and tests
 
@@ -58,6 +69,7 @@ python3 -m unittest -v test_promo_engine
 Focused coverage:
 
 ```sh
+node --test --test-name-pattern='legal|all views' tests/dashboard.test.js
 node --test --test-name-pattern='CSV|copy-link' tests/dashboard.test.js
 node --test --test-name-pattern='oversized|exact byte limit' tests/importer.test.js
 ```
@@ -87,9 +99,19 @@ Prefer the `CALLMEBOT_KEY` environment variable over command-line secrets. `--au
 
 ## Verification and release
 
+### Legal navigation recovery, 19 September 2026
+
+Recovery began from `9ef049f`. The navigation fix is pushed as `39ff491`; legal browser coverage is pushed as `47258ef`. The body now uses `data-current-view`, distinct from navigation controls' `data-view`; all three legal CSS selectors match. The original duplicate-selector failure was observed before an earlier interruption. At `47258ef`, `npm test` passed all 44 JavaScript cases (6 parser, 23 Chromium dashboard, 15 collector integration) and all 11 Python methods. `npm run build` and `git diff --check` exited successfully. A prior recovery run lacked the Chromium executable and failed; browsers were reinstalled before successful verification.
+
+Four added legal cases cover unique navigation controls, active state, hash changes/reload, hidden funding controls, scholarship-filter preservation, four source labels/URLs, exact-phrase/domain parameters, quote/ampersand/markup-like input without execution, no additional requests during query preparation, six glossary entries, term/description filtering, truthful no-match messaging, keyboard source expansion, citation URLs, research-this-term and clear/reset. The harness serves `legal.js` as JavaScript. No document overflow was observed across all four views, including Legal, at 320, 390, 768 and 1280 CSS pixels in light/dark themes. This does not establish cross-browser, screen-reader or universal accessibility compliance.
+
+Production serving of these changes remains unverified at this documentation checkpoint. Release uses the existing GitHub-to-Cloudflare integration, not direct deployment. No notifications or production-data test writes were performed.
+
+### Earlier checkpoints and coverage
+
 - Repository: https://github.com/Tiredicey/radar, branch `main`. Dashboard checkpoint: `da48360`. Collector-test checkpoint: `645072d`. CSV/clipboard browser coverage: `ca1eafd`. Collector transport isolation: `079e997`.
-- Production: https://radar-1y6.pages.dev/static/#discover . Hosting remains the user's Cloudflare Pages and D1 configuration. These test increments change no application code, workflow, dependencies or hosting configuration.
-- Latest local verification: all 40 JavaScript cases passed (6 parser, 19 Chromium dashboard, 15 collector integration), plus all 11 Python methods. Vite build passed.
+- Production: https://radar-1y6.pages.dev/static/#discover . Hosting remains the user's Cloudflare Pages and D1 configuration. The earlier test-only increments changed no application code. The legal navigation increment changes frontend navigation, matching CSS, tests and documentation, not the collector, notification monitor, workflow, dependencies, D1 schema or hosting configuration.
+- Historical pre-legal verification: all 40 JavaScript cases passed (6 parser, 19 Chromium dashboard, 15 collector integration), plus all 11 Python methods. Vite build passed.
 - Transport diagnosis: the original oversized-body case failed with `write ECONNRESET` in 7 of 8 local runs. A minimal Worker without Hono or D1 returned an immediate 413 for the same 1,500,001-byte upload: the Worker handled all 8 requests, but the client received 3 responses and 5 resets. Consuming a request clone before returning yielded 8 responses and no resets. This isolates a local early-response transport race; it does not identify a specific upstream library defect or establish production behavior.
 - After the harness correction, all 8 repeated runs of the three size-boundary cases passed, without retries inside the tests. Two disposable source mutations were detected: raising the limit to 2,000,000 failed the no-read rejection check, and lowering it to 1,499,999 failed exact-limit acceptance. Production source remained unchanged. These observations are bounded local results, not a guarantee against future transport failures.
 - Collector checks cover normalized source evidence for all four allowed IDs; missing/wrong/malformed authorization; absent/short configured tokens; unknown IDs; invalid timestamps/XML/entity declarations; declared, streamed and multibyte oversized bodies; early rejection without body reads; exact-size acceptance; duplicate/older/newer and concurrent uploads; persistence across a local runtime restart; fresh/stale collector reads without outbound fetching; and source-isolated empty snapshots. Rejected uploads are checked against the previous stored records. These are local runtime results, not a production security audit.
@@ -102,5 +124,5 @@ Prefer the `CALLMEBOT_KEY` environment variable over command-line secrets. `--au
 
 1. Broader browser coverage: screen-reader behavior, contrast, focus navigation, zoom, long text, reduced motion and visual-regression checks.
 2. Publisher-side failure/retry tests and injected D1 storage-error coverage. Local importer tests do not establish end-to-end delivery from scheduled GitHub runners or production upload transport behavior.
-3. Requested legal-research and GIF-discovery modules after source/API verification; neither is implemented here.
+3. GIF discovery remains unimplemented. Verify server-side permission, endpoint schemas, pagination, content filters, attribution, caching, advertising/tracking requirements and available credentials before implementation. GIPHY's [API requirements](https://developers.giphy.com/docs/api/), inspected 19 September 2026, prohibit proxying API/media requests and require client-side Search/Trending. Some parameter notes mention proxied requests, but do not establish an exception. Do not implement a server-side GIPHY proxy without provider clarification/approval. KLIPY's endpoint contract and integration permission remain unverified; prior crawler attempts returned navigation or oversized embedded images. No production GIF key is confirmed.
 4. Private saved leads/application notes remain unimplemented. The dashboard has no accounts, application submission or payment features.
