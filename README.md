@@ -24,7 +24,7 @@ Philippine scholarship, education-funding and innovation lead research. This is 
 
 ## User guide
 
-Use Discover to filter leads, review their evidence and visit original sources. Export downloads the current filtered results. Sources & health distinguishes fresh, stale, failed and unchecked sources. Counts describe available snapshots, not all possible opportunities.
+Use Discover to filter leads, review their evidence and visit original sources. Export downloads the current filtered results, including matches beyond the visible page. Sources & health distinguishes fresh, stale, failed and unchecked sources. Counts describe available snapshots, not all possible opportunities.
 
 In collector mode, Refresh reloads the stored snapshot; it does not trigger GitHub Actions. Inspect workflow runs for collection failures. The dashboard does not apply for programs, send payments or trigger notifications.
 
@@ -44,7 +44,7 @@ npx playwright install --with-deps chromium
 npm test
 ```
 
-The dashboard suite needs Chromium and its system dependencies. It uses isolated fixtures and intercepted browser requests, not production feeds or notifications.
+The dashboard suite needs Chromium, its system dependencies and Python 3. It uses isolated fixtures and intercepted browser requests, not production feeds or notifications. CSV tests read actual browser downloads and decode them with Python's standard-library CSV parser. Clipboard tests use the real Chromium clipboard for success, permission denial and recovery; separate API-absence and deferred-completion cases use test-only stubs.
 
 Individual suites:
 
@@ -53,6 +53,12 @@ node --test tests/core.test.js
 node --test tests/dashboard.test.js
 node --test tests/importer.test.js
 python3 -m unittest -v test_promo_engine
+```
+
+Focused export and clipboard coverage:
+
+```sh
+node --test --test-name-pattern='CSV|copy-link' tests/dashboard.test.js
 ```
 
 The collector suite bundles the actual Hono application using esbuild and runs it inside Miniflare with a separate local D1 database per case. It applies the repository migration, uses a fixture-only token, blocks application outbound fetches and cleans up generated `artifacts/importer-*` directories. Test-only migration/storage inspection routes exist only in the test bundle, not the production source or Vite build. No test reads production secrets or writes production D1.
@@ -78,17 +84,19 @@ Prefer the `CALLMEBOT_KEY` environment variable over command-line secrets. `--au
 
 ## Verification and release
 
-- Repository: https://github.com/Tiredicey/radar, branch `main`. Dashboard checkpoint: `da48360`. Collector-test checkpoint: `645072d`.
-- Production: https://radar-1y6.pages.dev/static/#discover . Hosting remains the user's Cloudflare Pages and D1 configuration. Production application code, workflow and hosting configuration are unchanged by the collector-test update.
-- Current local verification: 32 JavaScript cases passed (6 parser, 12 Chromium dashboard, 14 collector integration), plus 11 Python methods. Vite build passed.
+- Repository: https://github.com/Tiredicey/radar, branch `main`. Dashboard checkpoint: `da48360`. Collector-test checkpoint: `645072d`. CSV/clipboard browser coverage: `ca1eafd`.
+- Production: https://radar-1y6.pages.dev/static/#discover . Hosting remains the user's Cloudflare Pages and D1 configuration. The browser-test increment changes no application code, workflow, dependencies or hosting configuration.
+- Latest local verification after sandbox recovery: all 39 JavaScript cases passed (6 parser, 19 Chromium dashboard, 14 collector integration), plus all 11 Python methods. Vite build passed. No application defect was established by the seven added browser cases, so production code remains unchanged.
+- Earlier recovery warning: the unchanged collector oversized-body case failed with `TypeError: fetch failed`, caused by `write ECONNRESET`, at `tests/importer.test.js:86`. It failed in a full run and in focused runs in that sandbox. After a subsequent sandbox recovery, the same focused case and the full suite passed without source changes. The transport-reset cause remains undiagnosed; passing the latest run does not establish that this intermittent failure is fixed. Reproduce with `node --test --test-reporter=spec --test-name-pattern='oversized declared' tests/importer.test.js` if it recurs.
 - Collector checks cover normalized source evidence for all four allowed IDs; missing/wrong/malformed authorization; absent/short configured tokens; unknown IDs; invalid timestamps/XML/entity declarations; declared, streamed and multibyte oversized bodies; exact-size acceptance; duplicate/older/newer and concurrent uploads; persistence across a local runtime restart; fresh/stale collector reads without outbound fetching; and source-isolated empty snapshots. Rejected uploads are checked against the previous stored records. These are local runtime results, not a production security audit.
 - Browser checks cover collection modes, freshness counts, unavailable/empty data, refresh recovery, singular wording, keyboard search/details and absence of the removed attribution. No document overflow was observed at 320, 390, 768 and 1280 CSS pixels across Discover, Sources and Guide in light/dark themes using fixtures. This is not a claim of universal accessibility or complete visual-regression coverage.
+- Seven added browser cases cover exact filtered CSV membership and newest-first order beyond pagination; Unicode, quotes, commas, LF/CRLF/CR and amount evidence; apostrophe neutralization of tested formula/control prefixes without changing ordinary text; actual clipboard contents for successive selected leads; denied permission with unchanged clipboard and later recovery; missing clipboard API; and waiting for asynchronous completion before success. CSV byte checks do not establish behavior in every spreadsheet application. Clipboard checks do not establish screen-reader announcement or cross-browser support.
 - User-provided historical evidence: dashboard output showed 30 leads and 4/4 source checks; run #10 reported gateway acceptance, a later screenshot showed a received message, run #11 saved a silent baseline and run #13 restored cache without sending a new message. This session does not reverify that history or guarantee future delivery.
-- Release uses a normal GitHub push through the existing workflow. Push/build success alone does not prove production serves new assets. No notification sends or direct deployment are included in this test update.
+- Release uses a normal GitHub push through the existing workflow. Push/build success alone does not prove production serves new assets. No notification sends, production-data test writes or direct deployment are included in this test update.
 
 ## Remaining work
 
-1. Broader browser coverage: CSV contents, copy-link behavior, screen-reader, contrast and visual-regression checks.
-2. Publisher-side failure/retry tests and injected D1 storage-error coverage. Local importer tests do not establish end-to-end delivery from scheduled GitHub runners.
+1. Broader browser coverage: screen-reader behavior, contrast, focus navigation, zoom, long text, reduced motion and visual-regression checks.
+2. Publisher-side failure/retry tests, injected D1 storage-error coverage and diagnosis of the intermittent collector test transport reset. Local importer tests do not establish end-to-end delivery from scheduled GitHub runners.
 3. Requested legal-research and GIF-discovery modules after source/API verification; neither is implemented here.
 4. Private saved leads/application notes remain unimplemented. The dashboard has no accounts, application submission or payment features.
