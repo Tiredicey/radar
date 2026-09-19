@@ -55,13 +55,16 @@ node --test tests/importer.test.js
 python3 -m unittest -v test_promo_engine
 ```
 
-Focused export and clipboard coverage:
+Focused coverage:
 
 ```sh
 node --test --test-name-pattern='CSV|copy-link' tests/dashboard.test.js
+node --test --test-name-pattern='oversized|exact byte limit' tests/importer.test.js
 ```
 
-The collector suite bundles the actual Hono application using esbuild and runs it inside Miniflare with a separate local D1 database per case. It applies the repository migration, uses a fixture-only token, blocks application outbound fetches and cleans up generated `artifacts/importer-*` directories. Test-only migration/storage inspection routes exist only in the test bundle, not the production source or Vite build. No test reads production secrets or writes production D1.
+The collector suite bundles the actual Hono application using esbuild and runs it inside Miniflare with a separate local D1 database per case. It applies the repository migration, uses a fixture-only token, blocks application outbound fetches and cleans up generated `artifacts/importer-*` directories. Test-only migration/storage inspection and declared-limit routes exist only in the test bundle, not the production source or Vite build. No test reads production secrets or writes production D1.
+
+The test wrapper consumes a clone of each uploaded fixture before invoking the application with the original request. This prevents Miniflare's local HTTP bridge from racing an early rejection against an unfinished upload. It does not change the production importer or return a synthetic rejection. Existing assertions still check HTTP 413 and unchanged D1 records for declared, multibyte and streamed oversized bodies. A separate in-Worker request uses an unreadable stream with zero prefetch to verify that the actual importer rejects oversized Content-Length with HTTP 413 and zero body reads. Buffering is test-only and must not be copied into production; these buffered integration requests do not reproduce production socket timing or backpressure.
 
 The explicit esbuild and Miniflare dev dependencies pin the versions already present in the lockfile. They are test tooling, not new production integrations.
 
@@ -84,11 +87,12 @@ Prefer the `CALLMEBOT_KEY` environment variable over command-line secrets. `--au
 
 ## Verification and release
 
-- Repository: https://github.com/Tiredicey/radar, branch `main`. Dashboard checkpoint: `da48360`. Collector-test checkpoint: `645072d`. CSV/clipboard browser coverage: `ca1eafd`.
-- Production: https://radar-1y6.pages.dev/static/#discover . Hosting remains the user's Cloudflare Pages and D1 configuration. The browser-test increment changes no application code, workflow, dependencies or hosting configuration.
-- Latest local verification after sandbox recovery: all 39 JavaScript cases passed (6 parser, 19 Chromium dashboard, 14 collector integration), plus all 11 Python methods. Vite build passed. No application defect was established by the seven added browser cases, so production code remains unchanged.
-- Earlier recovery warning: the unchanged collector oversized-body case failed with `TypeError: fetch failed`, caused by `write ECONNRESET`, at `tests/importer.test.js:86`. It failed in a full run and in focused runs in that sandbox. After a subsequent sandbox recovery, the same focused case and the full suite passed without source changes. The transport-reset cause remains undiagnosed; passing the latest run does not establish that this intermittent failure is fixed. Reproduce with `node --test --test-reporter=spec --test-name-pattern='oversized declared' tests/importer.test.js` if it recurs.
-- Collector checks cover normalized source evidence for all four allowed IDs; missing/wrong/malformed authorization; absent/short configured tokens; unknown IDs; invalid timestamps/XML/entity declarations; declared, streamed and multibyte oversized bodies; exact-size acceptance; duplicate/older/newer and concurrent uploads; persistence across a local runtime restart; fresh/stale collector reads without outbound fetching; and source-isolated empty snapshots. Rejected uploads are checked against the previous stored records. These are local runtime results, not a production security audit.
+- Repository: https://github.com/Tiredicey/radar, branch `main`. Dashboard checkpoint: `da48360`. Collector-test checkpoint: `645072d`. CSV/clipboard browser coverage: `ca1eafd`. Collector transport isolation: `079e997`.
+- Production: https://radar-1y6.pages.dev/static/#discover . Hosting remains the user's Cloudflare Pages and D1 configuration. These test increments change no application code, workflow, dependencies or hosting configuration.
+- Latest local verification: all 40 JavaScript cases passed (6 parser, 19 Chromium dashboard, 15 collector integration), plus all 11 Python methods. Vite build passed.
+- Transport diagnosis: the original oversized-body case failed with `write ECONNRESET` in 7 of 8 local runs. A minimal Worker without Hono or D1 returned an immediate 413 for the same 1,500,001-byte upload: the Worker handled all 8 requests, but the client received 3 responses and 5 resets. Consuming a request clone before returning yielded 8 responses and no resets. This isolates a local early-response transport race; it does not identify a specific upstream library defect or establish production behavior.
+- After the harness correction, all 8 repeated runs of the three size-boundary cases passed, without retries inside the tests. Two disposable source mutations were detected: raising the limit to 2,000,000 failed the no-read rejection check, and lowering it to 1,499,999 failed exact-limit acceptance. Production source remained unchanged. These observations are bounded local results, not a guarantee against future transport failures.
+- Collector checks cover normalized source evidence for all four allowed IDs; missing/wrong/malformed authorization; absent/short configured tokens; unknown IDs; invalid timestamps/XML/entity declarations; declared, streamed and multibyte oversized bodies; early rejection without body reads; exact-size acceptance; duplicate/older/newer and concurrent uploads; persistence across a local runtime restart; fresh/stale collector reads without outbound fetching; and source-isolated empty snapshots. Rejected uploads are checked against the previous stored records. These are local runtime results, not a production security audit.
 - Browser checks cover collection modes, freshness counts, unavailable/empty data, refresh recovery, singular wording, keyboard search/details and absence of the removed attribution. No document overflow was observed at 320, 390, 768 and 1280 CSS pixels across Discover, Sources and Guide in light/dark themes using fixtures. This is not a claim of universal accessibility or complete visual-regression coverage.
 - Seven added browser cases cover exact filtered CSV membership and newest-first order beyond pagination; Unicode, quotes, commas, LF/CRLF/CR and amount evidence; apostrophe neutralization of tested formula/control prefixes without changing ordinary text; actual clipboard contents for successive selected leads; denied permission with unchanged clipboard and later recovery; missing clipboard API; and waiting for asynchronous completion before success. CSV byte checks do not establish behavior in every spreadsheet application. Clipboard checks do not establish screen-reader announcement or cross-browser support.
 - User-provided historical evidence: dashboard output showed 30 leads and 4/4 source checks; run #10 reported gateway acceptance, a later screenshot showed a received message, run #11 saved a silent baseline and run #13 restored cache without sending a new message. This session does not reverify that history or guarantee future delivery.
@@ -97,6 +101,6 @@ Prefer the `CALLMEBOT_KEY` environment variable over command-line secrets. `--au
 ## Remaining work
 
 1. Broader browser coverage: screen-reader behavior, contrast, focus navigation, zoom, long text, reduced motion and visual-regression checks.
-2. Publisher-side failure/retry tests, injected D1 storage-error coverage and diagnosis of the intermittent collector test transport reset. Local importer tests do not establish end-to-end delivery from scheduled GitHub runners.
+2. Publisher-side failure/retry tests and injected D1 storage-error coverage. Local importer tests do not establish end-to-end delivery from scheduled GitHub runners or production upload transport behavior.
 3. Requested legal-research and GIF-discovery modules after source/API verification; neither is implemented here.
 4. Private saved leads/application notes remain unimplemented. The dashboard has no accounts, application submission or payment features.
