@@ -19,6 +19,14 @@ export default {async fetch(request,env,ctx){
   return Response.json({ok:true})
  }
  if(path==='/__fixture/storage')return Response.json({rows:(await env.DB.prepare('SELECT * FROM cache ORDER BY id').all()).results,lease:(await env.DB.prepare('SELECT * FROM lease').all()).results,outbound})
+ if(path==='/__fixture/declared-limit'){
+  let reads=0
+  const body=new ReadableStream({pull(controller){reads++;controller.error(new Error('Oversized declared body must not be read'))}},{highWaterMark:0})
+  const input=new Request('https://radar.test/api/feeds/dost',{method:'POST',body,headers:{Authorization:'Bearer '+env.SYNC_TOKEN,'Content-Length':'1500001','X-Collected-At':String(Date.now())}})
+  const response=await app.fetch(input,env,ctx)
+  return Response.json({status:response.status,body:await response.json(),reads})
+ }
+ if(request.body)await request.clone().arrayBuffer()
  return app.fetch(request,env,ctx)
 }}`}})
 const script=outputFiles[0].text
@@ -80,6 +88,12 @@ test('invalid collection timestamps preserve prior records',{timeout:20000},asyn
 test('invalid XML and entity declarations cannot replace stored data',{timeout:20000},async t=>{
  const f=await fixture(t),{before}=await seed(f)
  for(const body of ['','<broken>','<html>Unavailable</html>','<rss/>','<!DOCTYPE rss><rss><channel/></rss>','<!DOCTYPE rss [<!ENTITY x SYSTEM "file:///etc/passwd">]><rss><channel/></rss>'])await unchanged(f,before,await f.upload({body}),422)
+})
+test('oversized Content-Length is rejected inside the Worker without reading its body',{timeout:20000},async t=>{
+ const f=await fixture(t),{before}=await seed(f)
+ const response=await f.request('/__fixture/declared-limit');assert.equal(response.status,200)
+ assert.deepEqual(await response.json(),{status:413,body:{error:'Feed too large'},reads:0})
+ assert.deepEqual(await f.storage(),before)
 })
 test('oversized declared and streamed bodies preserve prior snapshots',{timeout:20000},async t=>{
  const f=await fixture(t),{before}=await seed(f),body='x'.repeat(1500001)
