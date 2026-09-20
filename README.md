@@ -97,38 +97,6 @@ The Python monitor keeps separate SQLite `vouchers.db` history through GitHub Ac
 
 Prefer the `CALLMEBOT_KEY` environment variable over command-line secrets. `--auto` can send messages. CLI regression tests invoke it with temporary storage and mocked collection/delivery; those tests send no messages. To stop Messenger notifications, send `stop` to CallMeBot. Rotate exposed keys. Reference: https://www.callmebot.com/blog/free-api-facebook-messenger/
 
-## Truth.txt alignment and notification evidence
-
-Reviewed baseline: `ec6e280c01efb64d527746607ae90a3709088da7`. The supplied `Truth.txt` has 2,367 lines and SHA-256 `53922fe38b3d32a783e94f14f93d98e20e64563f75664a4a108d79c5bb1bfa7a`. Its original bytes remain unchanged; the upload is not copied into the public repository.
-
-Applied guidance: E1-E9 and N6-N9/N11, especially separate evidence states, scope-bound review, real execution checks, conflicting evidence and failure routing. Later addenda scope the earlier persona, framework, styling and tool defaults. No additional tools, frameworks, fabricated statistics or broad redesign are required to adopt these checks. This is a bounded application of the specification, not certification of universal compliance.
-
-### Evidence and scope
-
-- **Observed runner evidence:** [run 35521372189](https://github.com/Tiredicey/radar/actions/runs/35521372189), 20 September 2026 at 16:01 UTC (21 September at 00:01 PHT), restored history, inserted one research lead and logged no message sent. Its old message did not distinguish an empty eligible queue from oversized records. This does not prove a Messenger outage.
-- **Observed runner evidence:** [run 35534020862](https://github.com/Tiredicey/radar/actions/runs/35534020862), using `ec6e280`, recorded HTTP 200, classified a heartbeat response as accepted and saved the history cache. Its summary counted 0 pending application-wording leads, 31 unnotified funding-news records and 0 uncertain lead records. These are counts of the restored database, not all opportunities or recipient delivery measurements.
-- **User-provided receipt:** the user reported receiving the matching `2026-09-21 03:58 PHT` heartbeat in this conversation. Receipt is confirmed by that report for this one message. The application has no recipient-receipt API, and future delivery remains unverified.
-- **Provider documentation:** [CallMeBot Messenger setup](https://www.callmebot.com/blog/free-api-facebook-messenger/), inspected during this audit, documents the credential-bearing GET endpoint and key setup. The fetched page does not establish a machine-readable acknowledgement schema or delivery receipt contract. Its publication date was not established here.
-
-Review covered `promo_engine.py`, `test_promo_engine.py`, `.github/workflows/inflow_radar.yml`, `publish_dashboard.py`, notification-related README text and the dashboard monitoring paragraph. The core commit changed only the engine and its tests. Previously drafted workflow selectors, independent dashboard/notification steps and new UI controls were not pushed. Legal research, feed-ranking quality, dependencies, full accessibility and production site assets were not re-audited.
-
-### Findings and bounded corrections
-
-| Finding at reviewed baseline | Evidence | Correction or limit |
-| --- | --- | --- |
-| Report advertises a missing workflow Test option | `promo_engine.py:465-469`; workflow `workflow_dispatch` has no inputs | Report now provides the implemented CLI commands and states that Run workflow performs a normal scan |
-| Example/echo/conditional text can count as acknowledgement | `promo_engine.py:310-325`; reproduced using fixture response text | Detect the tested contexts and keep them uncertain; the parser remains a text heuristic, not a universal response validator |
-| Mixed success/failure text becomes a definite rejection and can retry | `promo_engine.py:319-323,351-352,439-440` | Mixed signals now classify as uncertain, retaining the existing review hold |
-| README omits explicit recovery and misstates CLI test coverage | README Implemented and Storage sections at `ec6e280` | Corrected without rewriting unrelated historical records |
-
-`python3 promo_engine.py --test-notification` sends a live diagnostic only with a configured key. `python3 promo_engine.py --auto --retry-uncertain` can duplicate previously delivered leads and requires checking the chat first. Do not reset the cache or baseline/accepted flags to force a send. The committed workflow still runs the dashboard publisher before the monitor; a publisher failure can skip the monitor. Separating those steps remains unfinished, not a shipped capability.
-
-Default quiet-status eligibility is 24 hours after the last gateway attempt, evaluated during scans. The CLI accepts `--heartbeat-hours 0` to disable status messages; the current workflow does not wire a repository-variable override. Existing pending application digests remain enabled. `notification_state` stores runner attempt/acceptance-classification history in the cached SQLite database. Cache retention is best-effort. Stored acceptance timestamps refer to the runner attempt, not a provider or recipient delivery timestamp.
-
-### Validation for this correction
-
-The four added audit methods failed on the reviewed implementation, then passed after correction. The current Python suite passed 39 methods with fixture storage and mocked gateway requests. Commands: `python3 -m unittest -v <four audit methods>` and `python3 -m unittest -q test_promo_engine`. No live diagnostic, recovery command, cache reset or direct Cloudflare deployment was triggered for this audit. Browser checks and full provider-schema compatibility are not established by these Python tests. Historical checks below remain tied to their named revisions, not this correction.
-
 ## Verification and release
 
 ### Legal navigation recovery, 19 September 2026
