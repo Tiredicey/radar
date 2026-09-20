@@ -7,6 +7,9 @@ Target: STI College Lipa / Direct Cash Inflow Priority Pipeline
 
 import argparse
 import datetime
+from contextlib import contextmanager
+from dataclasses import dataclass
+import time
 import hashlib
 import html
 import json
@@ -101,10 +104,15 @@ def configure_logging(verbose: bool) -> None:
     )
 
 
-def get_db_connection(db_path: str = DATABASE_FILE) -> sqlite3.Connection:
-    conn = sqlite3.connect(db_path)
+@contextmanager
+def get_db_connection(db_path: str = DATABASE_FILE):
+    conn = sqlite3.connect(db_path, timeout=30)
     conn.row_factory = sqlite3.Row
-    return conn
+    try:
+        with conn:
+            yield conn
+    finally:
+        conn.close()
 
 
 def lead_category(text: str) -> str:
@@ -133,7 +141,12 @@ def init_db(db_path: str = DATABASE_FILE) -> None:
                 alerted INTEGER DEFAULT 0
             )
         """)
-        # Migration check for payout_php column if updating an existing db
+        conn.execute("""CREATE TABLE IF NOT EXISTS notification_state (
+            id INTEGER PRIMARY KEY CHECK(id=1), last_attempt INTEGER NOT NULL DEFAULT 0,
+            last_accepted INTEGER NOT NULL DEFAULT 0, result TEXT NOT NULL DEFAULT 'never-attempted',
+            initialized INTEGER NOT NULL DEFAULT 0)""")
+        conn.execute("INSERT OR IGNORE INTO notification_state(id,initialized) SELECT 1,EXISTS(SELECT 1 FROM vouchers)")
+        conn.execute("CREATE INDEX IF NOT EXISTS vouchers_alert_queue ON vouchers(alerted,category,discovered_at)")
         cursor = conn.execute("PRAGMA table_info(vouchers)")
         columns = [row[1] for row in cursor.fetchall()]
         if "payout_php" not in columns:
@@ -312,45 +325,150 @@ def classify_callmebot_response(body: str) -> str:
     return "unrecognized-response"
 
 
-def send_messenger_callmebot(apikey: str, text: str) -> bool:
+@dataclass(frozen=True)
+class GatewayResult:
+    outcome: str
+    reason: str
+    http_status: int = 0
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def send_messenger_callmebot(apikey: str, text: str) -> GatewayResult:
     url = "https://api.callmebot.com/facebook/send.php?" + urllib.parse.urlencode({"apikey": apikey, "text": text})
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    req = urllib.request.Request(url, headers={"User-Agent": "CapitalRadar/3.0"})
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            body = resp.read(4096).decode('utf-8', errors='replace')
-            result = classify_callmebot_response(body)
-            logging.info("CallMeBot result=%s http=%s message_chars=%d; response body withheld.", result, resp.status, len(text))
-            return result == "accepted"
-    except urllib.error.URLError as err:
-        logging.error("CallMeBot request failed; credential-bearing details withheld.")
-        return False
+        with urllib.request.build_opener(NoRedirect).open(req, timeout=20) as resp:
+            body = resp.read(65537)
+            reason = classify_callmebot_response(body.decode('utf-8', errors='replace')) if len(body) <= 65536 else 'oversized-response'
+            if not 200 <= resp.status < 300:
+                result = GatewayResult('uncertain', 'unexpected-http-status', resp.status)
+            elif reason == 'accepted':
+                result = GatewayResult('accepted', reason, resp.status)
+            elif reason in {'invalid-key', 'rate-limited', 'message-too-long', 'not-authorized', 'provider-error'}:
+                result = GatewayResult('rejected', reason, resp.status)
+            else:
+                result = GatewayResult('uncertain', reason, resp.status)
+    except urllib.error.HTTPError as error:
+        result = GatewayResult('rejected' if error.code in {400, 401, 403, 413, 414, 429} else 'uncertain', 'http-' + str(error.code), error.code)
+        error.close()
+    except (OSError, urllib.error.URLError):
+        result = GatewayResult('uncertain', 'network-error')
+    logging.info('CallMeBot outcome=%s reason=%s http=%s message_chars=%d; response body withheld.', result.outcome, result.reason, result.http_status, len(text))
+    return result
 
 
-def dispatch_alerts(callmebot_key: str, db_path: str = DATABASE_FILE) -> int:
-    if not callmebot_key:
-        raise ValueError("CALLMEBOT_KEY missing")
+def queue_counts(conn) -> dict:
+    rows = conn.execute('SELECT alerted,category,COUNT(*) AS count FROM vouchers GROUP BY alerted,category').fetchall()
+    return {
+        'pending_applications': sum(r['count'] for r in rows if r['alerted'] == 0 and r['category'] == 'application_lead'),
+        'unnotified_news': sum(r['count'] for r in rows if r['alerted'] == 0 and r['category'] == 'funding_news'),
+        'uncertain_leads': sum(r['count'] for r in rows if r['alerted'] == 2),
+        'accepted_leads': sum(r['count'] for r in rows if r['alerted'] == 1),
+        'baseline_leads': sum(r['count'] for r in rows if r['alerted'] == 3)
+    }
+
+
+def message_fits(text: str) -> bool:
+    return len(text) <= 1500 and len(urllib.parse.urlencode({'text': text})) <= 6000
+
+
+def pht_timestamp(epoch: int) -> str:
+    return datetime.datetime.fromtimestamp(epoch, datetime.timezone(datetime.timedelta(hours=8))).strftime('%Y-%m-%d %H:%M PHT')
+
+
+def dispatch_alerts(callmebot_key: str, db_path: str = DATABASE_FILE, *, heartbeat_hours=24,
+                    test_message=False, retry_uncertain=False, report=None, now=None) -> int:
+    if not (callmebot_key or '').strip():
+        raise ValueError('CALLMEBOT_KEY missing')
+    if not 0 <= heartbeat_hours <= 168:
+        raise ValueError('Heartbeat interval must be between 0 and 168 hours')
+    report = report if report is not None else {}
+    now = int(time.time()) if now is None else now
+    selected = []
     with get_db_connection(db_path) as conn:
-        conn.execute("BEGIN IMMEDIATE")
-        items = conn.execute("SELECT id,title,link FROM vouchers WHERE alerted=0 AND category='application_lead' ORDER BY is_local DESC,discovered_at DESC LIMIT 20").fetchall()
-        text = "Radar research leads. Awards, eligibility and deadlines unverified."
-        selected = []
-        for item in items:
-            candidate = text + "\n\n" + item["title"][:220] + "\n" + item["link"]
-            if len(candidate) <= 1500 and len(urllib.parse.urlencode({"text": candidate})) <= 6000:
-                text = candidate
-                selected.append(item)
-        items = selected
-        conn.executemany("UPDATE vouchers SET alerted=2 WHERE id=?", [(r["id"],) for r in items])
-    if not items:
-        logging.info("No unalerted application leads fit the message budget. No message sent.")
-        return 0
-    if not send_messenger_callmebot(callmebot_key, text):
-        logging.error("Notification not confirmed. See CallMeBot result above. Feed collection succeeded; no automatic retry in this database.")
-        raise RuntimeError("Notification unconfirmed")
+        conn.execute('BEGIN IMMEDIATE')
+        if retry_uncertain:
+            report['requeued'] = conn.execute("UPDATE vouchers SET alerted=0 WHERE alerted=2 AND category='application_lead'").rowcount
+            logging.warning('Explicit recovery requeued %d uncertain leads; duplicates are possible.', report['requeued'])
+        report.update(queue_counts(conn))
+        state = conn.execute('SELECT * FROM notification_state WHERE id=1').fetchone()
+        report.update(previous_gateway_result=state['result'], last_gateway_accepted_at=state['last_accepted'], oversized_leads=0)
+        header = 'Radar research leads. Awards, eligibility and deadlines unverified.'
+        text, kind = header, 'digest'
+        if test_message:
+            kind = 'test'
+            text = (f'Radar Messenger connection test — {pht_timestamp(now)}.\n'
+                    'If you can read this message, delivery reached this chat.\n'
+                    'No research leads were marked as notified.\nhttps://radar-1y6.pages.dev/static/#sources')
+        else:
+            for item in conn.execute("SELECT id,title,link FROM vouchers WHERE alerted=0 AND category='application_lead' ORDER BY discovered_at ASC,is_local DESC,id ASC"):
+                entry = '\n\n' + item['title'][:220] + '\n' + item['link']
+                if not message_fits(header + entry):
+                    report['oversized_leads'] += 1
+                elif message_fits(text + entry):
+                    text += entry
+                    selected.append(item)
+            if not selected:
+                due = heartbeat_hours > 0 and (state['last_attempt'] == 0 or now - state['last_attempt'] >= heartbeat_hours * 3600)
+                if due:
+                    kind = 'heartbeat'
+                    text = (f'Radar status — {pht_timestamp(now)}\n'
+                            f"New research leads collected this run: {report.get('new_records', 'not checked')}.\n"
+                            f"Pending application-wording leads: {report['pending_applications']}.\n"
+                            f"Unnotified funding news: {report['unnotified_news']} (not verified open applications).\n"
+                            f"Uncertain lead attempts needing review: {report['uncertain_leads']}.\n"
+                            'No new application digest was sent in this check.\n'
+                            'Awards, eligibility and deadlines remain unverified.\nhttps://radar-1y6.pages.dev/static/#discover')
+                else:
+                    report['notification'] = 'message-budget-blocked' if report['pending_applications'] else 'no-pending-applications'
+                    report['next_heartbeat_at'] = state['last_attempt'] + heartbeat_hours * 3600 if heartbeat_hours else None
+                    report['attention_required'] = bool(report['uncertain_leads'] or report['oversized_leads'] or state['result'] in {'uncertain', 'rejected'})
+                    if report['attention_required']:
+                        raise RuntimeError('Notification history needs review')
+                    return 0
+        conn.executemany('UPDATE vouchers SET alerted=2 WHERE id=?', [(r['id'],) for r in selected])
+        conn.execute("UPDATE notification_state SET last_attempt=?,result='uncertain' WHERE id=1", (now,))
+        report['notification'] = kind + '-attempted'
+    result = send_messenger_callmebot(callmebot_key, text)
+    report.update(gateway_outcome=result.outcome, gateway_reason=result.reason, gateway_http=result.http_status)
     with get_db_connection(db_path) as conn:
-        conn.executemany("UPDATE vouchers SET alerted=1 WHERE id=?", [(r["id"],) for r in items])
-    logging.info("Gateway accepted a digest of %d research leads; delivery unverified.", len(items))
-    return len(items)
+        if result.outcome != 'uncertain':
+            conn.executemany('UPDATE vouchers SET alerted=? WHERE id=?', [(1 if result.outcome == 'accepted' else 0, r['id']) for r in selected])
+        conn.execute("UPDATE notification_state SET result=?,last_accepted=CASE WHEN ?='accepted' THEN ? ELSE last_accepted END WHERE id=1", (result.outcome, result.outcome, now))
+        report.update(queue_counts(conn))
+    report.update(notification=kind + '-' + result.outcome, accepted_this_run=len(selected) if result.outcome == 'accepted' else 0)
+    report['attention_required'] = result.outcome != 'accepted' or bool(report['uncertain_leads'] or report['oversized_leads'])
+    if result.outcome != 'accepted':
+        raise RuntimeError('Gateway did not confirm acceptance; rejected leads remain pending, uncertain attempts require review')
+    report['last_gateway_accepted_at'] = now
+    logging.info('Gateway accepted %s with %d leads; Messenger delivery and device notifications remain unverified.', kind, len(selected))
+    if report['attention_required'] and not test_message:
+        raise RuntimeError('Notification history needs review')
+    return len(selected)
+
+
+def write_run_summary(report: dict, db_path: str = DATABASE_FILE) -> None:
+    with get_db_connection(db_path) as conn:
+        report.update(queue_counts(conn))
+    logging.info('Notification summary: %s', json.dumps(report, sort_keys=True))
+    if not os.environ.get('GITHUB_STEP_SUMMARY'):
+        return
+    lines = ['## Messenger notification report', '', '| Check | Result |', '| --- | --- |']
+    for key, value in report.items():
+        if key.endswith('_at') and value:
+            value = pht_timestamp(value)
+        lines.append(f"| {key.replace('_', ' ').capitalize()} | {value} |")
+    lines += ['', 'Gateway acceptance is not a Messenger delivery/read receipt or a device-notification confirmation.',
+              'Only new application-wording leads enter digests. Funding news is counted, not represented as an open application.',
+              'Daily status is sent on the first eligible successful scan, not at an exact clock time.',
+              'Run workflow → test sends one diagnostic. Check Messenger before retry-uncertain; duplicates are possible.',
+              'Cache history is best-effort. Missing history baselines existing leads instead of rebroadcasting them.', '']
+    with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as summary:
+        summary.write('\n'.join(lines))
 
 
 def main() -> None:
@@ -359,7 +477,11 @@ def main() -> None:
     parser.add_argument("--fetch", action="store_true", help="Fetch and filter capital inflows")
     parser.add_argument("--list", action="store_true", help="Display capital records ranked by payout")
     parser.add_argument("--callmebot-key", type=str, default=os.environ.get("CALLMEBOT_KEY"), help="CallMeBot Messenger API key")
-    parser.add_argument("--auto", action="store_true", help="Run fetch and dispatch in single pipeline execution")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--auto', action='store_true', help='Fetch leads and send pending applications or a due status')
+    mode.add_argument('--test-notification', action='store_true', help='Send one diagnostic without fetching or altering lead flags')
+    parser.add_argument('--retry-uncertain', action='store_true', help='With --auto, requeue uncertain application attempts; duplicates are possible')
+    parser.add_argument('--heartbeat-hours', type=int, default=24, help='Quiet-status interval, 0 disables, maximum 168 (default: 24)')
     parser.add_argument("--verbose", action="store_true", help="Enable debug logging")
 
     args = parser.parse_args()
@@ -375,26 +497,41 @@ def main() -> None:
         except Exception:
             pass
 
-    if not any([args.init_db, args.fetch, args.list, args.auto]):
+    if not any([args.init_db, args.fetch, args.list, args.auto, args.test_notification]):
         parser.print_help()
         sys.exit(1)
-
+    if args.retry_uncertain and not args.auto:
+        parser.error('--retry-uncertain requires --auto')
+    if not 0 <= args.heartbeat_hours <= 168:
+        parser.error('--heartbeat-hours must be between 0 and 168')
+    if args.test_notification and (args.fetch or args.list):
+        parser.error('--test-notification cannot fetch or list leads')
     init_db()
-    if args.fetch:
-        ingest_feeds()
-    if args.list:
-        list_records()
-    if args.auto:
-        if not args.callmebot_key:
-            raise ValueError("CALLMEBOT_KEY must be configured for automatic alerts")
-        ingest_feeds()
-        if os.environ.get("RADAR_BASELINE") == "1":
+    report = {'run_result': 'failed', 'notification': 'not-attempted', 'heartbeat_hours': args.heartbeat_hours}
+    try:
+        if (args.auto or args.test_notification) and not (args.callmebot_key or '').strip():
+            report['notification'] = 'missing-key'
+            raise ValueError('CALLMEBOT_KEY must be configured for notifications')
+        if args.fetch or args.auto:
             with get_db_connection() as conn:
-                conn.execute("UPDATE vouchers SET alerted=3 WHERE alerted=0")
-            logging.warning("Silent baseline saved. Future new leads can notify.")
-        else:
-            dispatch_alerts(args.callmebot_key)
-        list_records()
+                baseline = not conn.execute('SELECT initialized FROM notification_state WHERE id=1').fetchone()[0]
+            report['new_records'] = ingest_feeds()
+            with get_db_connection() as conn:
+                if args.auto:
+                    report['baseline'] = baseline or os.environ.get('RADAR_BASELINE') == '1'
+                    if report['baseline']:
+                        conn.execute('UPDATE vouchers SET alerted=3 WHERE alerted=0')
+                        logging.warning('Silent lead baseline saved; status messages remain enabled. No old lead digest will be sent.')
+                conn.execute('UPDATE notification_state SET initialized=1 WHERE id=1')
+        if args.auto or args.test_notification:
+            dispatch_alerts(args.callmebot_key, heartbeat_hours=args.heartbeat_hours,
+                            test_message=args.test_notification, retry_uncertain=args.retry_uncertain, report=report)
+        if args.list or args.auto:
+            list_records()
+        report['run_result'] = 'completed'
+    finally:
+        if args.auto or args.test_notification:
+            write_run_summary(report)
 
 
 if __name__ == "__main__":
