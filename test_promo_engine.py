@@ -43,6 +43,14 @@ class GatewayTests(unittest.TestCase):
     def test_nonvisible_error_not_failure(self):
         self.assertEqual(engine.classify_callmebot_response('<script>error: failed</script><p>Message sent</p>'), 'accepted')
 
+    def test_examples_echoes_and_conditionals_are_not_acknowledgements(self):
+        for body in ['Example response: Message sent', '<p>Requested text: Message sent</p><p>Maintenance</p>', 'If message sent, check your phone', 'Message sent? I cannot confirm this.']:
+            with self.subTest(body=body):
+                self.assertEqual(engine.classify_callmebot_response(body), 'unrecognized-response')
+
+    def test_conflicting_response_is_not_a_definite_rejection(self):
+        self.assertEqual(engine.classify_callmebot_response('Message sent, but delivery failed'), 'conflicting-response')
+
 
 class RelevanceTests(unittest.TestCase):
     def test_unrelated_programs_excluded(self):
@@ -188,6 +196,15 @@ class DeliveryTests(unittest.TestCase):
         self.assertIn('| Pending applications | 0 |',text)
         for private in ['fixture-key','Scholarship applications open']: self.assertNotIn(private,text)
 
+    def test_summary_describes_real_controls_and_unverified_delivery(self):
+        self.run_dispatch(test_message=True)
+        with patch.dict(os.environ,{'GITHUB_STEP_SUMMARY':self.summary}): engine.write_run_summary(self.report,self.db)
+        text=Path(self.summary).read_text()
+        self.assertIn('python3 promo_engine.py --test-notification',text)
+        self.assertNotIn('Run workflow → test',text)
+        self.assertIn('| Delivery status | unverified |',text)
+        self.assertIn('runner attempt time',text)
+
     def test_migration_preserves_legacy_history(self):
         with engine.get_db_connection(self.db) as conn: conn.execute('DROP TABLE notification_state')
         for flag in range(4): self.seed(str(flag),flag=flag)
@@ -267,6 +284,10 @@ class TransportTests(unittest.TestCase):
         for body in [b'',b'OK',b'Maintenance',b'x'*65537]: self.assertEqual(self.request(body).outcome,'uncertain')
         for body in [b'Invalid API key',b'Too many requests',b'Account disabled',b'ERROR: not sent']:
             self.assertEqual(self.request(body).outcome,'rejected')
+
+    def test_conflicting_and_example_responses_are_uncertain(self):
+        for body in [b'Message sent, but delivery failed', b'Example response: Message sent']:
+            self.assertEqual(self.request(body).outcome,'uncertain')
 
     def test_http_errors_do_not_leak_credentials(self):
         for status in [400,401,403,413,414,429,500,502,503,302]:

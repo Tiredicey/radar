@@ -311,6 +311,12 @@ def classify_callmebot_response(body: str) -> str:
     visible = re.sub(r"<(script|style)\b[^>]*>.*?</\1>", " ", body, flags=re.I | re.S)
     visible = html.unescape(re.sub(r"<[^>]*>", " ", visible))
     visible = re.sub(r"\s+", " ", visible).strip().lower()
+    acknowledgement = re.search(r"\bmessage\s+(?:(?:was|has been|is|successfully)\s+)*(?:sent|queued|accepted)\b|\bsuccessfully\s+(?:sent|queued)\b", visible)
+    if acknowledgement:
+        prefix = visible[:acknowledgement.start()]
+        suffix = visible[acknowledgement.end():].lstrip()
+        if re.search(r"\b(?:example(?: response)?|sample(?: response)?|requested text|if|when)\s*:?\s*$", prefix) or suffix.startswith('?'):
+            return 'unrecognized-response'
     for pattern, reason in [
         (r"(?:invalid|wrong|incorrect|missing)\s*(?:api[ -]?key|key)", "invalid-key"),
         (r"too many|rate limit|quota|wait.{0,15}(?:seconds|minutes)", "rate-limited"),
@@ -319,8 +325,8 @@ def classify_callmebot_response(body: str) -> str:
         (r"\berror\s*[:!]|\bfailed\b|\bnot (?:be )?(?:sent|queued|accepted)\b|\bno message", "provider-error")
     ]:
         if re.search(pattern, visible):
-            return reason
-    if re.search(r"\bmessage\s+(?:(?:was|has been|is|successfully)\s+)*(?:sent|queued|accepted)\b|\bsuccessfully\s+(?:sent|queued)\b", visible):
+            return "conflicting-response" if acknowledgement else reason
+    if acknowledgement:
         return "accepted"
     return "unrecognized-response"
 
@@ -445,13 +451,14 @@ def dispatch_alerts(callmebot_key: str, db_path: str = DATABASE_FILE, *, heartbe
     if result.outcome != 'accepted':
         raise RuntimeError('Gateway did not confirm acceptance; rejected leads remain pending, uncertain attempts require review')
     report['last_gateway_accepted_at'] = now
-    logging.info('Gateway accepted %s with %d leads; Messenger delivery and device notifications remain unverified.', kind, len(selected))
+    logging.info('Gateway response classified as accepted for %s with %d leads; Messenger delivery and device notifications remain unverified.', kind, len(selected))
     if report['attention_required'] and not test_message:
         raise RuntimeError('Notification history needs review')
     return len(selected)
 
 
 def write_run_summary(report: dict, db_path: str = DATABASE_FILE) -> None:
+    report['delivery_status'] = 'unverified'
     with get_db_connection(db_path) as conn:
         report.update(queue_counts(conn))
     logging.info('Notification summary: %s', json.dumps(report, sort_keys=True))
@@ -464,8 +471,13 @@ def write_run_summary(report: dict, db_path: str = DATABASE_FILE) -> None:
         lines.append(f"| {key.replace('_', ' ').capitalize()} | {value} |")
     lines += ['', 'Gateway acceptance is not a Messenger delivery/read receipt or a device-notification confirmation.',
               'Only new application-wording leads enter digests. Funding news is counted, not represented as an open application.',
-              'Daily status is sent on the first eligible successful scan, not at an exact clock time.',
-              'Run workflow → test sends one diagnostic. Check Messenger before retry-uncertain; duplicates are possible.',
+              'Daily status is attempted on an eligible scan; scheduling and delivery are not guaranteed.',
+              'Gateway outcomes classify response text and HTTP status; they are not recipient receipts.',
+              'Last gateway accepted at records the runner attempt time for a response classified as accepted, not a provider delivery timestamp.',
+              'Counts cover this alert-history database, not all available opportunities.',
+              'CLI diagnostic: python3 promo_engine.py --test-notification, with CALLMEBOT_KEY configured.',
+              'CLI recovery: python3 promo_engine.py --auto --retry-uncertain. Check Messenger first; duplicates are possible.',
+              'The committed workflow has no test/recovery selector; Run workflow uses the normal scan.',
               'Cache history is best-effort. Missing history baselines existing leads instead of rebroadcasting them.', '']
     with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as summary:
         summary.write('\n'.join(lines))
