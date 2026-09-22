@@ -4,6 +4,8 @@ Philippine scholarship, education-funding and innovation lead research. This is 
 
 ## Implemented
 
+- Visual increment: controlled decorative radar sweep, colored markers, Pause/Resume motion, live system reduced-motion response, hidden-tab animation pause, and Focus mode that hides decoration without changing research filters. Existing theme and data workflows remain unchanged. Browser preferences last for the current page session. Build and parser checks run for this increment; full browser regression follows. Original guide media is a separate pending increment.
+
 - Jurisprudence, Traced: four labeled source directories, local source-specific Google search links, exact-phrase mode, six filterable learning entries, keyboard-expandable source context, research-this-term and clear/reset controls.
 
 - Hono / Cloudflare Pages dashboard with light/dark themes, mobile layouts, search, category/location/application-wording filters, sorting, lead details, source links, copy-link action and CSV export.

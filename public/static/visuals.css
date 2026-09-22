@@ -1,0 +1,21 @@
+@keyframes radar-sweep{from{transform:translate(-50%,-50%) rotate(-110deg)}to{transform:translate(-50%,-50%) rotate(250deg)}}
+@keyframes radar-beacon{0%,100%{transform:scale(1);opacity:.7}50%{transform:scale(1.6);opacity:1}}
+@keyframes enter-view{from{transform:translateY(6px);opacity:0}to{transform:translateY(0);opacity:1}}
+.workspace-controls{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.workspace-controls button{padding:8px 12px;border:1px solid var(--line);border-radius:20px;font-size:12px;min-height:40px}
+.workspace-controls button[aria-pressed=true]{background:var(--soft);color:var(--accent)}
+header{gap:14px;flex-wrap:wrap}
+.hero{background:radial-gradient(ellipse at 88% 10%,#41634b 0,transparent 60%),#1e493a;border:1px solid #42654a;border-radius:18px;isolation:isolate}
+.hero>div:first-child{min-width:0}.hero h2{font-size:clamp(27px,3vw,36px);line-height:1.25}.hero p{font-size:14px}
+.radar{min-height:300px}.radar:before{background:conic-gradient(transparent 100deg,#d4e6b51a 220deg,#d4e6b56b 245deg,transparent 246deg)}
+.radar-point{position:absolute;width:10px;height:10px;border-radius:50%;outline:7px solid #f0f5df12;background:#e8c69b}.radar-point-one{top:28%;left:62%}.radar-point-two{top:66%;left:31%;background:#a8d8db}.radar-point-three{top:72%;left:68%;background:#dcebad}
+.radar .radar-caption{top:auto;bottom:12px;left:0;right:0;text-align:center;border:0;background:none;font-size:10px;color:#d1dfc2;letter-spacing:.4px}
+.stats article{position:relative;border-radius:12px;overflow:hidden}.stats article:before{content:'';position:absolute;inset:0 auto 0 0;width:3px;background:#6c8d5d}.stats article:nth-child(2):before{background:#598b8e}.stats article:nth-child(3):before{background:#aa7953}.stats article:nth-child(4):before{background:#8b789e}.stats strong{font-variant-numeric:tabular-nums}
+.card{border-radius:13px;overflow:hidden;box-shadow:0 3px 12px #173d3104}.card:focus-within{border-color:var(--accent)}.card-title{overflow-wrap:anywhere}.panel{border-radius:12px}
+body[data-focus=true] .hero,body[data-focus=true] .side-note{display:none}
+@media(hover:hover){.card:hover{box-shadow:0 9px 24px #173d310d;border-color:var(--accent)}nav button:not(.active):hover{background:#ffffff0e}}
+@media(prefers-reduced-motion:no-preference){html[data-motion=on] .radar:before{animation:radar-sweep 16s linear infinite}html[data-motion=on] .radar-point{animation:radar-beacon 5s ease-in-out infinite}html[data-motion=on] .radar-point-two{animation-delay:1.5s}html[data-motion=on] .radar-point-three{animation-delay:3s}html[data-motion=on] .view:not([hidden]){animation:enter-view .24s ease-out}html[data-motion=on] dialog[open]{animation:enter-view .2s ease-out}html[data-motion=on] .card{transition:transform .2s ease-out}html[data-motion=on] .card:hover{transform:translateY(-3px)}}
+html[data-motion=paused] *,html[data-page-hidden=true] *{animation-play-state:paused!important;transition:none!important}
+html[data-page-hidden=true] .radar:before{animation-play-state:paused!important}
+@media(max-width:850px){.workspace-controls{justify-content:flex-start}.workspace-controls button{font-size:11px;padding:8px 10px}}
+@media(max-width:620px){.hero{grid-template-columns:minmax(0,1fr)}.hero>div:first-child{padding:26px 22px}.hero p{font-size:13px}.radar{display:none}header{padding:12px 18px}.workspace-controls{width:100%}.workspace-controls button{flex:1}.stats span{font-size:12px}.stats small{font-size:11px}.evidence,.notice{font-size:12px}}
