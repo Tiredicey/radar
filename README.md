@@ -4,7 +4,7 @@ Philippine scholarship, education-funding and innovation lead research. This is 
 
 ## Implemented
 
-- Visual increment: controlled decorative radar sweep, colored markers, Pause/Resume motion, live system reduced-motion response, hidden-tab animation pause, and Focus mode that hides decoration without changing research filters. Existing theme and data workflows remain unchanged. Browser preferences last for the current page session. Build and parser checks run for this increment; full browser regression follows. Original guide media is a separate pending increment.
+- Visual increment: controlled decorative radar sweep, colored markers, Pause/Resume motion, live system reduced-motion response, hidden-tab animation pause, and Focus mode that hides decoration without changing research filters. Existing theme and data workflows remain unchanged. Browser preferences last for the current page session. The illustrated guide is now integrated; see the visual release verification below.
 
 - Jurisprudence, Traced: four labeled source directories, local source-specific Google search links, exact-phrase mode, six filterable learning entries, keyboard-expandable source context, research-this-term and clear/reset controls.
 
@@ -141,3 +141,18 @@ KLIPY's [llms.txt](https://docs.klipy.com/llms.txt), linked from its HTML, expos
 - [Content filtering](https://docs.klipy.com/content-filtering.md) identifies Partner Dashboard controls; embedded imagery prevented complete inspection of its categories. Integration requirements prohibit independently filtering returned results. Request-level filtering, moderation, ad/tracking obligations and accessible explicit-playback behavior must be reconciled with the approved integration before implementation.
 
 Next gate: obtain written provider approval for Radar's server-side API requests with keys kept in Cloudflare secrets, then verify remaining Trending/filtering/ad contracts and provision credentials outside chat. No GIF UI, backend route, fake results, Discord scraping, user tokens or private-channel integration has been added.
+
+
+## Visual research release
+
+- Added a locally hosted original illustrated poster and 18-second silent research video (WebM with MP4 fallback), native playback controls, English WebVTT captions and a complete visible transcript. No autoplay or third-party media requests.
+- Open **Watch the research guide** from Discover or use the visual guide in **Before you apply**. Escape/Close pauses playback and restores opener focus. Failed media keeps the text alternative and reports the failure. System reduced-motion changes and hidden tabs pause playback.
+- Pause/Resume controls decorative radar motion. Focus mode hides decorative sections without clearing filters or hiding essential guidance. Preferences are page-session only.
+- Added category border accents and precise PHT collection/check timestamps. Search, legal reference tools, CSV, clipboard, D1 importer, Python monitor and scheduled workflow remain in place.
+- Recreate the original media with `python3 render_guide.py` on a machine with Pillow, FFmpeg and the referenced Noto fonts. Rendering is an offline authoring operation, never a Cloudflare runtime dependency. No third-party photograph was included.
+
+### Verification
+
+`npm test` and `npm run build` passed for this increment; `git diff --check` passed. The suite includes 51 JavaScript cases (6 parser, 30 Chromium interface, 15 local collector integration) and 39 Python methods. Tests use isolated fixtures and mocked notification delivery. New browser checks cover motion controls, changing reduced-motion preference, focus-mode filter retention, actual video decoding/playback, captions, keyboard isolation, Escape/pause/focus recovery, video-load failure, poster loading, modal fit at 320/390/768/1280 pixels in both themes, and precise PHT timestamps.
+
+No production-data writes or notification sends were used for testing. Browser checks are Chromium-only; this is not universal accessibility, screen-reader, performance or cross-browser certification. Release uses the existing GitHub-to-Cloudflare integration. A successful push does not by itself establish that production serves the new revision.

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import {readFile} from 'node:fs/promises'
 import {execFileSync} from 'node:child_process'
 import {chromium,expect} from '@playwright/test'
-const assets=Object.fromEntries(await Promise.all(['index.html','app.js','legal.js','style.css'].map(async name=>[name,await readFile(new URL('../public/static/'+name,import.meta.url),'utf8')])))
+const assets=Object.fromEntries(await Promise.all(['index.html','app.js','legal.js','style.css','visuals.js','visuals.css','guide.js','research-guide.webp','research-guide.webm','research-guide.mp4','research-guide.vtt'].map(async name=>[name,await readFile(new URL('../public/static/'+name,import.meta.url))])))
 const feeds=JSON.parse(await readFile(new URL('../feeds.json',import.meta.url),'utf8'))
 const now=new Date().toISOString()
 const lead={id:'fixture',title:'Test scholarship applications open',summary:'Test fixture only.',publisher:'Fixture institution',source:'dost',category:'scholarships',local:false,signal:true,published:now,collected:now,amount:{value:0,evidence:''},link:'https://example.org/fixture'}
@@ -24,7 +24,7 @@ async function open(t,response=snapshot()){
    return c.abort?route.abort('failed'):route.fulfill({status:c.status,json:c.response})
   }
   const name=u.pathname==='/static/'?'index.html':u.pathname.split('/').pop()
-  return route.fulfill({status:assets[name]?200:404,body:assets[name]||'',contentType:{'index.html':'text/html','app.js':'text/javascript','legal.js':'text/javascript','style.css':'text/css'}[name]||'text/plain'})
+  return route.fulfill({status:assets[name]?200:404,body:assets[name]||'',contentType:{'index.html':'text/html','app.js':'text/javascript','legal.js':'text/javascript','visuals.js':'text/javascript','guide.js':'text/javascript','style.css':'text/css','visuals.css':'text/css','research-guide.webp':'image/webp','research-guide.webm':'video/webm','research-guide.mp4':'video/mp4','research-guide.vtt':'text/vtt'}[name]||'text/plain'})
  })
  c.go=async(hash='')=>{await page.goto('https://radar.test/static/'+hash);await expect(page.locator('#grid')).toHaveAttribute('aria-busy','false')}
  c.refresh=async()=>{await page.locator('#refresh').click();await expect(page.locator('#grid')).toHaveAttribute('aria-busy','false')}
@@ -292,4 +292,82 @@ test('attribution is absent and all views fit mobile/desktop in light/dark',asyn
    }
   }
  }
+})
+
+test('motion controls stop the radar and follow system preferences',async t=>{
+ const c=await open(t);await c.go();const p=c.page
+ await expect(p.locator('html')).toHaveAttribute('data-motion','on')
+ assert.equal(await p.locator('.radar').evaluate(e=>getComputedStyle(e,'::before').animationName),'radar-sweep')
+ await p.locator('#motion-toggle').click()
+ await expect(p.locator('html')).toHaveAttribute('data-motion','paused')
+ await expect(p.locator('#motion-toggle')).toHaveAttribute('aria-pressed','true')
+ assert.equal(await p.locator('.radar').evaluate(e=>getComputedStyle(e,'::before').animationName),'none')
+ await p.locator('#motion-toggle').click();await p.emulateMedia({reducedMotion:'reduce'})
+ await expect(p.locator('#motion-toggle')).toBeDisabled()
+ await expect(p.locator('html')).toHaveAttribute('data-motion','paused')
+ assert.equal(await p.locator('.radar').evaluate(e=>getComputedStyle(e,'::before').animationName),'none')
+ await p.emulateMedia({reducedMotion:'no-preference'})
+ await expect(p.locator('#motion-toggle')).toBeEnabled()
+ await expect(p.locator('html')).toHaveAttribute('data-motion','on')
+})
+test('focus mode preserves research filters and essential guidance',async t=>{
+ const c=await open(t);await c.go();const p=c.page
+ await p.locator('#search').fill('scholarship');await p.locator('#focus-mode').click()
+ await expect(p.locator('.hero')).toBeHidden();await expect(p.locator('.card-title')).toBeVisible()
+ await p.locator('[data-view="guide"]').click()
+ await expect(p.locator('.visual-guide')).toBeHidden();await expect(p.locator('#guide > .panel')).toBeVisible()
+ await p.locator('#focus-mode').click();await expect(p.locator('.visual-guide')).toBeVisible()
+ await p.locator('[data-view="discover"]').click();await expect(p.locator('#search')).toHaveValue('scholarship')
+})
+test('guide plays real opt-in video with captions, keyboard isolation and focus recovery',async t=>{
+ const c=await open(t);await c.go();const p=c.page
+ assert.equal(c.allRequests.some(u=>/research-guide\.(webm|mp4)/.test(u)),false)
+ const trigger=p.locator('.watch-guide')
+ await trigger.click();await expect(p.locator('#guide-dialog')).toBeVisible()
+ assert.equal(await p.locator('#research-video').evaluate(v=>v.paused),true)
+ const hash=new URL(p.url()).hash;await p.keyboard.press('/');assert.equal(new URL(p.url()).hash,hash)
+ await p.locator('#research-video').evaluate(async v=>{v.textTracks[0].mode='hidden';await v.play()})
+ await expect.poll(()=>p.locator('#research-video').evaluate(v=>v.currentTime)).toBeGreaterThan(.1)
+ assert.equal(await p.locator('#research-video').evaluate(v=>v.videoWidth),960)
+ assert.equal(await p.locator('#research-video').evaluate(v=>Math.round(v.duration)),18)
+ await expect.poll(()=>p.locator('#research-video').evaluate(v=>v.textTracks[0].cues?.length||0)).toBe(3)
+ await p.keyboard.press('Escape');await expect(p.locator('#guide-dialog')).toBeHidden()
+ await expect.poll(()=>p.locator('#research-video').evaluate(v=>v.paused)).toBe(true)
+ await expect(trigger).toBeFocused();await trigger.click()
+ assert.equal(await p.locator('#research-video').evaluate(v=>v.paused),true)
+ await p.locator('#guide-close').click()
+})
+test('system reduced motion pauses active video without hiding the transcript',async t=>{
+ const c=await open(t);await c.go();const p=c.page
+ await p.locator('.watch-guide').click();await p.locator('#research-video').evaluate(v=>v.play())
+ await p.emulateMedia({reducedMotion:'reduce'})
+ await expect.poll(()=>p.locator('#research-video').evaluate(v=>v.paused)).toBe(true)
+ await expect(p.locator('#guide-transcript')).toContainText('not a verified open application')
+})
+test('failed media reports failure while preserving the complete text alternative',async t=>{
+ const c=await open(t);await c.page.route('**/research-guide.webm',r=>r.abort());await c.page.route('**/research-guide.mp4',r=>r.abort())
+ await c.go();const p=c.page;await p.locator('.watch-guide').click()
+ await p.locator('#research-video').evaluate(v=>{v.play().catch(()=>{})})
+ await expect(p.locator('#video-status')).toContainText('Video unavailable')
+ await expect(p.locator('#guide-transcript')).toBeVisible()
+})
+test('guide poster and dialog fit mobile desktop and both themes',async t=>{
+ const c=await open(t);await c.go('#guide');const p=c.page
+ await expect.poll(()=>p.locator('.guide-preview img').evaluate(i=>i.naturalWidth)).toBe(960)
+ for(const width of [320,390,768,1280]){
+  await p.setViewportSize({width,height:900})
+  for(const theme of ['light','dark']){
+   await p.evaluate(value=>document.documentElement.dataset.theme=value,theme)
+   await p.locator('.guide-preview').click()
+   assert.equal(await p.locator('#guide-dialog').evaluate(d=>d.scrollWidth<=d.clientWidth&&d.getBoundingClientRect().right<=innerWidth),true,`${width} ${theme}`)
+   await p.locator('#guide-close').click()
+  }
+ }
+})
+test('source and lead collection timestamps include exact PHT clock time',async t=>{
+ const data=snapshot();data.sources[0].health.checked=Date.parse('2026-09-21T04:34:00Z');data.items[0].collected='2026-09-21T04:34:00Z'
+ const c=await open(t,data);await c.go();const p=c.page
+ await p.locator('[data-view="sources"]').click();await expect(p.locator('#source-grid .panel').first()).toContainText('12:34 PM PHT')
+ await p.locator('[data-view="discover"]').click();await p.locator('.card-title').click()
+ await expect(p.locator('#detail')).toContainText('12:34 PM PHT')
 })
