@@ -143,6 +143,17 @@ KLIPY's [llms.txt](https://docs.klipy.com/llms.txt), linked from its HTML, expos
 Next gate: obtain written provider approval for Radar's server-side API requests with keys kept in Cloudflare secrets, then verify remaining Trending/filtering/ad contracts and provision credentials outside chat. No GIF UI, backend route, fake results, Discord scraping, user tokens or private-channel integration has been added.
 
 
+## Motion and media release, 24 September 2026
+
+- Hero background photo: an AI-generated illustrative image (student at a study desk by a capiz window), served locally as WebP at 960 and 1600 pixels (41 KB and 83 KB). The hero labels it on screen as AI-generated, not a real applicant or institution. It is decorative (`aria-hidden`, empty alt), sits under a green scrim for text contrast, and drifts slowly only when motion is on. If the image fails, the page removes it and falls back to the original solid hero.
+- Data-linked radar: each loaded lead, up to 36 newest, adds one dot. Local leads sit on the inner rings and older leads plot further out; colors follow category. Each dot pings when the CSS sweep passes it, synced through the Web Animations API. Angles are deterministic hashes of lead IDs. The caption states placement is decorative, not geographic. With no leads, the original static markers and caption return.
+- Newly shown lead cards enter with a short stagger; cards already seen do not replay when filters change. Changed stat numbers pulse once. Stats, panels and the visual guide reveal on scroll.
+- Every new animation runs only under `html[data-motion=on]` inside `prefers-reduced-motion: no-preference`, so Pause motion, the system reduced-motion setting and hidden tabs stop it. Only transform and opacity animate.
+- The research guide video was re-rendered with `render_guide.py`: 24 fps (was 12), eased text entrances, card crossfades at scene boundaries, an animated sweep, a drawn checklist and a drawn checkmark. Duration (18 s), size (960x540), captions and transcript stay the same. WebM and MP4 are about 257 KB each.
+- Fix: loading `/static/` or `/static/#discover` scrolled the page 331 px down to the `#discover` section, hiding the header and hero. The app now returns to the top after load unless the user has focused something.
+
+Verification: `npm test` passed 55 JavaScript cases (6 parser, 34 Chromium interface, 15 collector integration) and 39 Python methods. `npm run build` and `git diff --check` passed. Four new browser cases cover blip count, local placement, readout/caption and motion pausing; photo labeling, decorative semantics, reduced motion, local-only requests and failure fallback; one-time card entrance; and opening at the top with a hash. Chromium only.
+
 ## Visual research release
 
 - Added a locally hosted original illustrated poster and 18-second silent research video (WebM with MP4 fallback), native playback controls, English WebVTT captions and a complete visible transcript. No autoplay or third-party media requests.
