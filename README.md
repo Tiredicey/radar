@@ -149,6 +149,21 @@ Next gate: obtain written provider approval for Radar's server-side API requests
 - Open **Watch the research guide** from Discover or use the visual guide in **Before you apply**. Escape/Close pauses playback and restores opener focus. Failed media keeps the text alternative and reports the failure. System reduced-motion changes and hidden tabs pause playback.
 - Pause/Resume controls decorative radar motion. Focus mode hides decorative sections without clearing filters or hiding essential guidance. Preferences are page-session only.
 - Added category border accents and precise PHT collection/check timestamps. Search, legal reference tools, CSV, clipboard, D1 importer, Python monitor and scheduled workflow remain in place.
+- Recreate the original media with `python3 render_guide.py` on a machine with Pillow, FFmpeg and the referenced Noto fonts. Rendering is an offline authoring operation, never a Cloudflare runtime dependency. No third-party photograph was included. The hero photo added on 24 September 2026 is AI-generated, not a stock or third-party photograph.
+
+### Verification
+
+`npm test` and `npm run build` passed for this increment; `git diff --check` passed. The suite includes 51 JavaScript cases (6 parser, 30 Chromium interface, 15 local collector integration) and 39 Python methods. Tests use isolated fixtures and mocked notification delivery. New browser checks cover motion controls, changing reduced-motion preference, focus-mode filter retention, actual video decoding/playback, captions, keyboard isolation, Escape/pause/focus recovery, video-load failure, poster loading, modal fit at 320/390/768/1280 pixels in both themes, and precise PHT timestamps.
+
+No production-data writes or notification sends were used for testing. Browser checks are Chromium-only; this is not universal accessibility, screen-reader, performance or cross-browser certification. Release uses the existing GitHub-to-Cloudflare integration. A successful push does not by itself establish that production serves the new revision.
+nd failure fallback; one-time card entrance; and opening at the top with a hash. Chromium only.
+
+## Visual research release
+
+- Added a locally hosted original illustrated poster and 18-second silent research video (WebM with MP4 fallback), native playback controls, English WebVTT captions and a complete visible transcript. No autoplay or third-party media requests.
+- Open **Watch the research guide** from Discover or use the visual guide in **Before you apply**. Escape/Close pauses playback and restores opener focus. Failed media keeps the text alternative and reports the failure. System reduced-motion changes and hidden tabs pause playback.
+- Pause/Resume controls decorative radar motion. Focus mode hides decorative sections without clearing filters or hiding essential guidance. Preferences are page-session only.
+- Added category border accents and precise PHT collection/check timestamps. Search, legal reference tools, CSV, clipboard, D1 importer, Python monitor and scheduled workflow remain in place.
 - Recreate the original media with `python3 render_guide.py` on a machine with Pillow, FFmpeg and the referenced Noto fonts. Rendering is an offline authoring operation, never a Cloudflare runtime dependency. No third-party photograph was included.
 
 ### Verification

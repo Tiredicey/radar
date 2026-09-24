@@ -1,0 +1,37 @@
+@keyframes radar-ping{0%{transform:translate(-50%,-50%) scale(1.9);opacity:1}10%{transform:translate(-50%,-50%) scale(1);opacity:.95}70%,100%{transform:translate(-50%,-50%) scale(.85);opacity:.28}}
+@keyframes card-in{from{transform:translateY(14px);opacity:0}to{transform:none;opacity:1}}
+@keyframes stat-pulse{0%{transform:translateY(4px);opacity:.35}100%{transform:none;opacity:1}}
+@keyframes photo-drift{from{transform:scale(1.06) translate3d(0,0,0)}to{transform:scale(1.12) translate3d(-1.6%,-1%,0)}}
+@keyframes reveal-up{from{transform:translateY(18px);opacity:0}to{transform:none;opacity:1}}
+.hero{position:relative}
+.hero.has-photo{background:#16392d;border-color:#3b5f48}
+.hero-photo{position:absolute;inset:0;z-index:-2;overflow:hidden}
+.hero-photo img{display:block;width:100%;height:100%;object-fit:cover;object-position:70% 45%;transform:scale(1.06);filter:saturate(.82) contrast(1.02)}
+.hero.has-photo:before{content:'';position:absolute;inset:0;z-index:-1;background:linear-gradient(95deg,#123126f5 0%,#15392ce6 38%,#173d31a6 62%,#173d3166 100%),radial-gradient(ellipse at 80% 55%,transparent 20%,#10291fb3 90%)}
+.hero .hero-credit{display:block;margin-top:18px;font-size:10px;letter-spacing:.2px;color:#cfe0c3;opacity:.9;line-height:1.5}
+.hero.has-photo .radar i{border-color:#c9dfa266}
+.hero.has-photo .radar b{box-shadow:0 0 0 6px #d7ebb026}
+.radar-blips{position:absolute;left:50%;top:50%;width:310px;height:310px;transform:translate(-50%,-50%);pointer-events:none}
+.radar-blip{position:absolute;width:8px;height:8px;border-radius:50%;background:#dcebad;transform:translate(-50%,-50%);opacity:.8;box-shadow:0 0 0 3px #10291f55}
+.radar-blip[data-kind=scholarships]{background:#dcebad}.radar-blip[data-kind=grants]{background:#a8d8db}.radar-blip[data-kind=competitions]{background:#e8c69b}
+.radar-blip[data-local=true]{width:10px;height:10px;box-shadow:0 0 0 3px #10291f55,0 0 0 6px #f3f7e924}
+.radar[data-plotted]:not([data-plotted='0']) .radar-point{display:none}
+.radar-readout{position:absolute;left:50%;top:14px;transform:translateX(-50%);white-space:nowrap;font-size:11px;font-variant-numeric:tabular-nums;color:#f3f7e9;background:#123126cc;border:1px solid #6f8f6a;border-radius:20px;padding:6px 12px}
+.radar .radar-readout{top:14px;left:50%;border:1px solid #6f8f6a;background:#123126cc;padding:6px 12px;font-size:11px}
+.radar .radar-caption{max-width:300px;margin:0 auto;line-height:1.5}
+.stats strong{display:block}
+@media(prefers-reduced-motion:no-preference){
+html[data-motion=on] .radar-blip{animation:radar-ping 16s linear infinite}
+html[data-motion=on] .hero-photo img{animation:photo-drift 38s ease-in-out infinite alternate}
+html[data-motion=on] .card.card-enter{animation:card-in .5s cubic-bezier(.2,.7,.2,1) both;animation-delay:calc(var(--stagger,0) * 45ms)}
+html[data-motion=on] .stats strong.stat-changed{animation:stat-pulse .45s cubic-bezier(.2,.7,.2,1)}
+html[data-motion=on].reveal-ready .reveal:not(.revealed){opacity:0}
+html[data-motion=on].reveal-ready .revealed{animation:reveal-up .55s cubic-bezier(.2,.7,.2,1) both}
+html[data-motion=on].reveal-ready .stats article.revealed:nth-child(2){animation-delay:60ms}html[data-motion=on].reveal-ready .stats article.revealed:nth-child(3){animation-delay:120ms}html[data-motion=on].reveal-ready .stats article.revealed:nth-child(4){animation-delay:180ms}
+html[data-motion=on] .button{transition:transform .18s ease-out,background-color .18s,border-color .18s}
+html[data-motion=on] .button:active{transform:scale(.97)}
+}
+@media(hover:hover) and (prefers-reduced-motion:no-preference){html[data-motion=on] .guide-preview img{transition:transform .5s cubic-bezier(.2,.7,.2,1)}html[data-motion=on] .guide-preview:hover img{transform:scale(1.035)}}
+@media(max-width:850px){.radar-readout{display:none}}
+@media(max-width:620px){.hero-photo img{object-position:78% 50%}.hero.has-photo:before{background:linear-gradient(180deg,#123126e6 0%,#15392cd9 60%,#173d31c7 100%)}}
+@media print{.hero-photo,.radar-blips,.radar-readout{display:none}}

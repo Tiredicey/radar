@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import {readFile} from 'node:fs/promises'
 import {execFileSync} from 'node:child_process'
 import {chromium,expect} from '@playwright/test'
-const assets=Object.fromEntries(await Promise.all(['index.html','app.js','legal.js','style.css','visuals.js','visuals.css','guide.js','research-guide.webp','research-guide.webm','research-guide.mp4','research-guide.vtt'].map(async name=>[name,await readFile(new URL('../public/static/'+name,import.meta.url))])))
+const assets=Object.fromEntries(await Promise.all(['index.html','app.js','legal.js','style.css','visuals.js','visuals.css','guide.js','research-guide.webp','research-guide.webm','research-guide.mp4','research-guide.vtt','motion.js','motion.css','hero-960.webp','hero-1600.webp'].map(async name=>[name,await readFile(new URL('../public/static/'+name,import.meta.url))])))
 const feeds=JSON.parse(await readFile(new URL('../feeds.json',import.meta.url),'utf8'))
 const now=new Date().toISOString()
 const lead={id:'fixture',title:'Test scholarship applications open',summary:'Test fixture only.',publisher:'Fixture institution',source:'dost',category:'scholarships',local:false,signal:true,published:now,collected:now,amount:{value:0,evidence:''},link:'https://example.org/fixture'}
@@ -24,7 +24,7 @@ async function open(t,response=snapshot()){
    return c.abort?route.abort('failed'):route.fulfill({status:c.status,json:c.response})
   }
   const name=u.pathname==='/static/'?'index.html':u.pathname.split('/').pop()
-  return route.fulfill({status:assets[name]?200:404,body:assets[name]||'',contentType:{'index.html':'text/html','app.js':'text/javascript','legal.js':'text/javascript','visuals.js':'text/javascript','guide.js':'text/javascript','style.css':'text/css','visuals.css':'text/css','research-guide.webp':'image/webp','research-guide.webm':'video/webm','research-guide.mp4':'video/mp4','research-guide.vtt':'text/vtt'}[name]||'text/plain'})
+  return route.fulfill({status:assets[name]?200:404,body:assets[name]||'',contentType:{'index.html':'text/html','app.js':'text/javascript','legal.js':'text/javascript','visuals.js':'text/javascript','guide.js':'text/javascript','style.css':'text/css','visuals.css':'text/css','research-guide.webp':'image/webp','research-guide.webm':'video/webm','research-guide.mp4':'video/mp4','research-guide.vtt':'text/vtt','motion.js':'text/javascript','motion.css':'text/css','hero-960.webp':'image/webp','hero-1600.webp':'image/webp'}[name]||'text/plain'})
  })
  c.go=async(hash='')=>{await page.goto('https://radar.test/static/'+hash);await expect(page.locator('#grid')).toHaveAttribute('aria-busy','false')}
  c.refresh=async()=>{await page.locator('#refresh').click();await expect(page.locator('#grid')).toHaveAttribute('aria-busy','false')}
@@ -330,6 +330,7 @@ test('guide plays real opt-in video with captions, keyboard isolation and focus 
  await expect.poll(()=>p.locator('#research-video').evaluate(v=>v.currentTime)).toBeGreaterThan(.1)
  assert.equal(await p.locator('#research-video').evaluate(v=>v.videoWidth),960)
  assert.equal(await p.locator('#research-video').evaluate(v=>Math.round(v.duration)),18)
+ assert.equal(await p.locator('#research-video').evaluate(v=>v.getVideoPlaybackQuality?.().totalVideoFrames>=0),true)
  await expect.poll(()=>p.locator('#research-video').evaluate(v=>v.textTracks[0].cues?.length||0)).toBe(3)
  await p.keyboard.press('Escape');await expect(p.locator('#guide-dialog')).toBeHidden()
  await expect.poll(()=>p.locator('#research-video').evaluate(v=>v.paused)).toBe(true)
@@ -370,4 +371,51 @@ test('source and lead collection timestamps include exact PHT clock time',async 
  await p.locator('[data-view="sources"]').click();await expect(p.locator('#source-grid .panel').first()).toContainText('12:34 PM PHT')
  await p.locator('[data-view="discover"]').click();await p.locator('.card-title').click()
  await expect(p.locator('#detail')).toContainText('12:34 PM PHT')
+})
+test('radar plots one decorative blip per loaded lead and follows motion controls',async t=>{
+ const data=snapshot();data.items=Array.from({length:5},(_,i)=>({...lead,id:'lead'+i,local:i<2,category:['scholarships','grants','competitions'][i%3],published:new Date(Date.now()-i*86400000).toISOString()}))
+ const c=await open(t,data);await c.go();const p=c.page
+ await expect(p.locator('.radar-blip')).toHaveCount(5)
+ await expect(p.locator('.radar-blip[data-local=true]')).toHaveCount(2)
+ await expect(p.locator('.radar-readout')).toHaveText('5 leads plotted · 2 near home')
+ await expect(p.locator('.radar-caption')).toContainText('not geographic')
+ await expect(p.locator('.radar-point').first()).toBeHidden()
+ assert.equal(await p.locator('.radar-blip').first().evaluate(e=>getComputedStyle(e).animationName),'radar-ping')
+ const distances=await p.locator('.radar-blip').evaluateAll(els=>els.map(e=>Math.hypot(parseFloat(e.style.left)-50,parseFloat(e.style.top)-50)))
+ assert.ok(distances.slice(0,2).every(d=>d<=30.01)&&distances.slice(2).every(d=>d>=34),'local leads sit on the inner rings')
+ await p.locator('#motion-toggle').click()
+ assert.equal(await p.locator('.radar-blip').first().evaluate(e=>getComputedStyle(e).animationName),'none')
+ await expect(p.locator('.radar-blip')).toHaveCount(5)
+ c.response={...snapshot(),items:[]};await c.refresh()
+ await expect(p.locator('.radar-blip')).toHaveCount(0);await expect(p.locator('.radar-readout')).toBeHidden()
+ await expect(p.locator('.radar-caption')).toHaveText('Illustration, not a live map')
+})
+test('hero photo is local, labeled, decorative and removed cleanly when unavailable',async t=>{
+ const c=await open(t);await c.go();const p=c.page
+ await expect.poll(()=>p.locator('.hero-photo img').evaluate(i=>i.naturalWidth)).toBeGreaterThan(0)
+ assert.equal(await p.locator('.hero-photo').getAttribute('aria-hidden'),'true')
+ assert.equal(await p.locator('.hero-photo img').getAttribute('alt'),'')
+ await expect(p.locator('.hero-credit')).toContainText('AI-generated illustrative photo')
+ assert.equal(await p.locator('.hero-photo img').evaluate(e=>getComputedStyle(e).animationName),'photo-drift')
+ await p.emulateMedia({reducedMotion:'reduce'})
+ assert.equal(await p.locator('.hero-photo img').evaluate(e=>getComputedStyle(e).animationName),'none')
+ assert.ok(c.allRequests.every(u=>u.startsWith('GET https://radar.test/')))
+ const broken=await open(t);await broken.page.route('**/hero-*.webp',r=>r.abort());await broken.go()
+ await expect(broken.page.locator('.hero-photo')).toHaveCount(0)
+ await expect(broken.page.locator('.hero')).not.toHaveClass(/has-photo/)
+ await expect(broken.page.locator('#local-button')).toBeVisible()
+})
+test('new cards animate once; filtering back does not replay entrance',async t=>{
+ const data=snapshot();data.items=Array.from({length:3},(_,i)=>({...lead,id:'card'+i,title:`Scholarship ${i} students`}))
+ const c=await open(t,data);await c.go();const p=c.page
+ await expect(p.locator('.card')).toHaveCount(3)
+ await expect(p.locator('.card.card-enter')).toHaveCount(0,{timeout:3000})
+ await p.locator('#search').fill('Scholarship 1');await expect(p.locator('.card')).toHaveCount(1)
+ await p.locator('#search').fill('');await expect(p.locator('.card')).toHaveCount(3)
+ await expect(p.locator('.card.card-enter')).toHaveCount(0)
+})
+test('page opens at the top even with a view hash',async t=>{
+ const c=await open(t);await c.go('#discover');const p=c.page
+ await p.waitForLoadState('load');await expect.poll(()=>p.evaluate(()=>scrollY)).toBe(0)
+ await expect(p.locator('header')).toBeInViewport()
 })
