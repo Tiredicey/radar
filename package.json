@@ -8,7 +8,7 @@
     "db:local": "wrangler d1 migrations apply radar --local"
   },
   "dependencies": {
-    "hono": "^4.13.8",
+    "hono": "^4.13.18",
     "fast-xml-parser": "^5.11.1"
   },
   "devDependencies": {
